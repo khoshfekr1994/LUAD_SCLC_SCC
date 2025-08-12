@@ -33,15 +33,8 @@ library(biomaRt)
 library(tibble)
 library(SummarizedExperiment)
 
-# ST LUAD: P24_T1, adj LUAD: P25_B1
-# ST SCC: P11_T1, adj SCC: P11_B2
-# ST LUAD compare: P24{all}, P25{all}, P15{all}, P16{all}
-# ST SCC compare: P11{T1:T4, B1, B2} and P19{T1,T2, B1, B2}
-# scRNA LUAD: P32
-# scRNA SCLC: M_1598
-
 # Data paths - UPDATE THESE TO MATCH YOUR SYSTEM
-BASE_PATH <- "/Users/hkhoshfekr/Library/CloudStorage/OneDrive-InsideMDAnderson/Data/spatial_transcriptomics"
+BASE_PATH <- "path/to/your/files"
 VISIUM_PATH <- file.path(BASE_PATH, "visium")
 SCRNA_LUAD_PATH <- file.path(BASE_PATH, "scRNA", "LUAD")
 SCRNA_SCLC_PATH <- file.path(BASE_PATH, "scRNA", "SCLC")
@@ -152,8 +145,8 @@ patient_data <- data.frame(
 
 # Updated patient data for scRNA
 patient_data_SCLC <- data.frame(
-  patient_code = c("Mason_768", "Mason_1598", "Mason_1571", "Mason_1498", "Mason_1453", "Mason_1428"),
-  folder = c("Mason_768", "Mason_1598", "Mason_1571", "Mason_1498","Mason_1453", "Mason_1428"),
+  patient_code = c("M_768", "M_1598", "M_1571", "M_1498", "M_1453", "M_1428"),
+  folder = c("M_768", "M_1598", "M_1571", "M_1498","M_1453", "M_1428"),
   type_of_tissue = c("Tumor", "Tumor", "Tumor", "Tumor", "Tumor", "Tumor"),
   type_of_cancer = c("SCLC", "SCLC", "SCLC", "SCLC", "SCLC", "SCLC"),
   stringsAsFactors = FALSE
@@ -174,7 +167,7 @@ ALL_ST_SAMPLES <- patient_data$patient_code
 LUAD_ST_SAMPLES <- patient_data[patient_data$type_of_cancer == "LUAD", ]$patient_code
 SCC_ST_SAMPLES <- patient_data[patient_data$type_of_cancer == "SCC", ]$patient_code
 LUAD_SCRNA_SAMPLES <- c("P5", "P9", "P16", "P20", "P21", "P29", "P30", "P32", "P35")
-SCLC_SCRNA_SAMPLES <- c("Mason_768", "Mason_1598", "Mason_1571", "Mason_1498", "Mason_1453", "Mason_1428")
+SCLC_SCRNA_SAMPLES <- c("M_768", "M_1598", "M_1571", "M_1498", "M_1453", "M_1428")
 
 # UPDATED: Comprehensive gene categories with all pathway genes
 GENE_CATEGORIES <- list(
@@ -2071,7 +2064,7 @@ ui <- dashboardPage(
                   conditionalPanel(
                     condition = "input.scrna_cancer_type == 'SCLC'",
                     selectInput("scrna_sclc_sample", "SCLC Sample:",
-                                choices = SCLC_SCRNA_SAMPLES, selected = "Mason_1598")
+                                choices = SCLC_SCRNA_SAMPLES, selected = "M_1598")
                   ),
                   
                   selectInput("scrna_tissue_type", "Tissue Type:",
@@ -2207,7 +2200,7 @@ ui <- dashboardPage(
                   conditionalPanel(
                     condition = "input.comp_scrna_cancer == 'SCLC'",
                     selectInput("comp_scrna_sclc", "scRNA Sample:", 
-                                choices = SCLC_SCRNA_SAMPLES, selected = "Mason_1598")
+                                choices = SCLC_SCRNA_SAMPLES, selected = "M_1598")
                   ),
                   
                   hr(),
@@ -3521,7 +3514,7 @@ server <- function(input, output, session) {
     data.frame(
       "Cancer Type" = c("LUAD", "SCLC"),
       "Sample Count" = c(length(LUAD_SCRNA_SAMPLES), length(SCLC_SCRNA_SAMPLES)),
-      "Example Sample" = c("P32", "Mason_1598")
+      "Example Sample" = c("P32", "M_1598")
     )
   }, options = list(pageLength = 5, searching = FALSE))
 }
