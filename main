@@ -1,0 +1,3533 @@
+# Complete Enhanced Spatial Transcriptomics & scRNA Gene Analysis Shiny App
+# Enhanced with comprehensive pathway genes and simplified polyamine metabolism scoring
+# 
+# Written by: Hamid Khoshfekr Rudsari
+# Date: July 2025
+# Contact: hkhoshefkr@mdanderson.org, khoshfekr1994@gmail.com
+# Institute: MD Anderson Cancer Center
+# Analysis of LUAD, SCC, and SCLC samples for understanding underlying mechanisms of lung cancer using public data
+
+# Load required libraries
+library(shiny)
+library(shinydashboard)
+library(DT)
+library(plotly)
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+library(shinycssloaders)
+library(shinyWidgets)
+library(shinydashboardPlus)
+library(SingleR)
+library(celldex)
+library(RColorBrewer)
+library(reshape2)
+library(tidyr)
+library(plyr)
+library(stringr)
+library(ggpubr)
+library(gridExtra)
+library(grid)
+library(biomaRt)
+library(tibble)
+library(SummarizedExperiment)
+
+# ST LUAD: P24_T1, adj LUAD: P25_B1
+# ST SCC: P11_T1, adj SCC: P11_B2
+# ST LUAD compare: P24{all}, P25{all}, P15{all}, P16{all}
+# ST SCC compare: P11{T1:T4, B1, B2} and P19{T1,T2, B1, B2}
+# scRNA LUAD: P32
+# scRNA SCLC: M_1598
+
+# Data paths - UPDATE THESE TO MATCH YOUR SYSTEM
+BASE_PATH <- "/Users/hkhoshfekr/Library/CloudStorage/OneDrive-InsideMDAnderson/Data/spatial_transcriptomics"
+VISIUM_PATH <- file.path(BASE_PATH, "visium")
+SCRNA_LUAD_PATH <- file.path(BASE_PATH, "scRNA", "LUAD")
+SCRNA_SCLC_PATH <- file.path(BASE_PATH, "scRNA", "SCLC")
+
+# Updated comprehensive patient data based on ArrayExpress
+patient_data <- data.frame(
+  patient_code = c(
+    "D1_1", "D1_2", "D2_1", "D2_2",
+    "P10_B1", "P10_B2", "P10_T1", "P10_T2", "P10_T3", "P10_T4",
+    "P11_B1", "P11_B2", "P11_T1", "P11_T2", "P11_T3", "P11_T4",
+    "P15_B1", "P15_B2", "P15_T1", "P15_T2",
+    "P16_B1", "P16_B2", "P16_T1", "P16_T2",
+    "P17_B1", "P17_B2", "P17_T1", "P17_T2",
+    "P19_B1", "P19_B2", "P19_T1", "P19_T2",
+    "P24_B1", "P24_B2", "P24_T1", "P24_T2",
+    "P25_B1", "P25_B2", "P25_T1", "P25_T2"
+  ),
+  individual = c(
+    "Donor 1", "Donor 1", "Donor 2", "Donor 2",
+    "Patient 10", "Patient 10", "Patient 10", "Patient 10", "Patient 10", "Patient 10",
+    "Patient 11", "Patient 11", "Patient 11", "Patient 11", "Patient 11", "Patient 11",
+    "Patient 15", "Patient 15", "Patient 15", "Patient 15",
+    "Patient 16", "Patient 16", "Patient 16", "Patient 16",
+    "Patient 17", "Patient 17", "Patient 17", "Patient 17",
+    "Patient 19", "Patient 19", "Patient 19", "Patient 19",
+    "Patient 24", "Patient 24", "Patient 24", "Patient 24",
+    "Patient 25", "Patient 25", "Patient 25", "Patient 25"
+  ),
+  age = c(
+    37, 38, 67, 68,
+    76, 77, 72, 73, 74, 75,
+    85, 86, 81, 82, 83, 84,
+    75, 76, 73, 74,
+    89, 90, 87, 88,
+    67, 68, 65, 66,
+    80, 81, 78, 79,
+    54, 55, 52, 53,
+    66, 67, 64, 65
+  ),
+  sex = c(
+    "male", "male", "male", "male",
+    "female", "female", "female", "female", "female", "female",
+    "male", "male", "male", "male", "male", "male",
+    "female", "female", "female", "female",
+    "female", "female", "female", "female",
+    "male", "male", "male", "male",
+    "male", "male", "male", "male",
+    "female", "female", "female", "female",
+    "male", "male", "male", "male"
+  ),
+  disease = c(
+    "normal", "normal", "normal", "normal",
+    "lung adenocarcinoma", "lung adenocarcinoma", "lung adenocarcinoma", "lung adenocarcinoma", "lung adenocarcinoma", "lung adenocarcinoma",
+    "lung squamous cell carcinoma", "lung squamous cell carcinoma", "lung squamous cell carcinoma", "lung squamous cell carcinoma", "lung squamous cell carcinoma", "lung squamous cell carcinoma",
+    "lung adenocarcinoma", "lung adenocarcinoma", "lung adenocarcinoma", "lung adenocarcinoma",
+    "lung adenocarcinoma", "lung adenocarcinoma", "lung adenocarcinoma", "lung adenocarcinoma",
+    "non-small cell carcinoma", "non-small cell carcinoma", "non-small cell carcinoma", "non-small cell carcinoma",
+    "lung squamous cell carcinoma", "lung squamous cell carcinoma", "lung squamous cell carcinoma", "lung squamous cell carcinoma",
+    "lung adenocarcinoma", "lung adenocarcinoma", "lung adenocarcinoma", "lung adenocarcinoma",
+    "lung adenocarcinoma", "lung adenocarcinoma", "lung adenocarcinoma", "lung adenocarcinoma"
+  ),
+  disease_staging = c(
+    "not applicable", "not applicable", "not applicable", "not applicable",
+    "T3N0M4", "T3N0M5", "T3N0M0", "T3N0M1", "T3N0M2", "T3N0M3",
+    "T2bN0M4", "T2bN0M5", "T2bN0M0", "T2bN0M1", "T2bN0M2", "T2bN0M3",
+    "T3N0M2", "T3N0M3", "T3N0M0", "T3N0M1",
+    "T2bN0M0", "T2bN0M0", "T2bN0M0", "T2bN0M0",
+    "T2aN0M0", "T2aN0M0", "T2aN0M0", "T2aN0M0",
+    "T3M0No", "T3M0No", "T3M0No", "T3M0No",
+    "T3N0M2", "T3N0M3", "T3N0M0", "T3N0M1",
+    "T3N0M2", "T3N0M3", "T3N0M0", "T3N0M1"
+  ),
+  sampling_site = c(
+    "healthy tissue", "healthy tissue", "healthy tissue", "healthy tissue",
+    "normal tissue adjacent to tumor", "normal tissue adjacent to tumor", "tumor", "tumor", "tumor", "tumor",
+    "normal tissue adjacent to tumor", "normal tissue adjacent to tumor", "tumor", "tumor", "tumor", "tumor",
+    "normal tissue adjacent to tumor", "normal tissue adjacent to tumor", "tumor", "tumor",
+    "normal tissue adjacent to tumor", "normal tissue adjacent to tumor", "tumor", "tumor",
+    "normal tissue adjacent to tumor", "normal tissue adjacent to tumor", "tumor", "tumor",
+    "normal tissue adjacent to tumor", "normal tissue adjacent to tumor", "tumor", "tumor",
+    "normal tissue adjacent to tumor", "normal tissue adjacent to tumor", "tumor", "tumor",
+    "normal tissue adjacent to tumor", "normal tissue adjacent to tumor", "tumor", "tumor"
+  ),
+  type_of_cancer = c(
+    "Healthy", "Healthy", "Healthy", "Healthy",
+    "LUAD", "LUAD", "LUAD", "LUAD", "LUAD", "LUAD",
+    "SCC", "SCC", "SCC", "SCC", "SCC", "SCC",
+    "LUAD", "LUAD", "LUAD", "LUAD",
+    "LUAD", "LUAD", "LUAD", "LUAD",
+    "non-SCLC", "non-SCLC", "non-SCLC", "non-SCLC",
+    "SCC", "SCC", "SCC", "SCC",
+    "LUAD", "LUAD", "LUAD", "LUAD",
+    "LUAD", "LUAD", "LUAD", "LUAD"
+  ),
+  tissue_category = c(
+    "Healthy", "Healthy", "Healthy", "Healthy",
+    "Adjacent", "Adjacent", "Tumor", "Tumor", "Tumor", "Tumor",
+    "Adjacent", "Adjacent", "Tumor", "Tumor", "Tumor", "Tumor",
+    "Adjacent", "Adjacent", "Tumor", "Tumor",
+    "Adjacent", "Adjacent", "Tumor", "Tumor",
+    "Adjacent", "Adjacent", "Tumor", "Tumor",
+    "Adjacent", "Adjacent", "Tumor", "Tumor",
+    "Adjacent", "Adjacent", "Tumor", "Tumor",
+    "Adjacent", "Adjacent", "Tumor", "Tumor"
+  ),
+  stringsAsFactors = FALSE
+)
+
+# Updated patient data for scRNA
+patient_data_SCLC <- data.frame(
+  patient_code = c("Mason_768", "Mason_1598", "Mason_1571", "Mason_1498", "Mason_1453", "Mason_1428"),
+  folder = c("Mason_768", "Mason_1598", "Mason_1571", "Mason_1498","Mason_1453", "Mason_1428"),
+  type_of_tissue = c("Tumor", "Tumor", "Tumor", "Tumor", "Tumor", "Tumor"),
+  type_of_cancer = c("SCLC", "SCLC", "SCLC", "SCLC", "SCLC", "SCLC"),
+  stringsAsFactors = FALSE
+)
+
+patient_data_LUAD <- data.frame(
+  patient_code = c("P5", "P9", "P16", "P20", "P21", "P29", "P30", "P32", "P35"),
+  folder = c("P5", "P9", "P16", "P20", "P21", "P29", "P30", "P32", "P35"),
+  type_of_tissue = c("Tumor", "Tumor", "Tumor", "Tumor", "Tumor", "Tumor", "Tumor", "Tumor", "Tumor"),
+  type_of_cancer = c("LUAD", "LUAD", "LUAD", "LUAD", "LUAD", "LUAD", "LUAD", "LUAD", "LUAD"),
+  stringsAsFactors = FALSE
+)
+
+# Get all available samples from updated patient data
+ALL_ST_SAMPLES <- patient_data$patient_code
+
+# Available samples for backward compatibility
+LUAD_ST_SAMPLES <- patient_data[patient_data$type_of_cancer == "LUAD", ]$patient_code
+SCC_ST_SAMPLES <- patient_data[patient_data$type_of_cancer == "SCC", ]$patient_code
+LUAD_SCRNA_SAMPLES <- c("P5", "P9", "P16", "P20", "P21", "P29", "P30", "P32", "P35")
+SCLC_SCRNA_SAMPLES <- c("Mason_768", "Mason_1598", "Mason_1571", "Mason_1498", "Mason_1453", "Mason_1428")
+
+# UPDATED: Comprehensive gene categories with all pathway genes
+GENE_CATEGORIES <- list(
+  "Fatty Acid Oxidation" = c("ACADM", "ACADS", "ACADVL", "ADIPOR1", "ADIPOR2", "ALOX12", "BDH2", 
+                             "CPT1A", "CPT1B", "ECH1", "ECHS1", "HACL1", "HADHB", "HAO1", "HAO2", 
+                             "PPARA", "PPARD", "PPARGC1A"),
+  
+  "Polyamine Metabolism" = c("ODC1", "AMD1", "SRM", "SMS", "SAT1", "PAOX", "OAZ1"),
+  
+  "Urea Cycle" = c("PS1", "OTC", "ARG2", "SLC25A15", "ARG1", "SLC25A2", "ASL", "ASS1", 
+                   "NMRAL1", "NAGS"),
+  
+  "Creatine Synthesis" = c("SLC6A7", "CKM", "SLC6A12", "GAMT", "SLC6A8", "CKMT2", "SLC6A11", 
+                           "CKB", "GATM", "CKMT1A", "CKMT1B"),
+  
+  "Pentose Phosphate Pathway" = c("DERA", "PRPS2", "PGLS", "PGD", "PRPS1", "RPIA", "G6PD", 
+                                  "TKT", "PGM2", "RBKS", "TALDO1", "SHPK", "RPE", "PRPS1L1", "RPEL1"),
+  
+  "Purine Metabolism" = c("NT5C2", "NUDT1", "DNPH1", "NT5C1A", "GDA", "NT5C", "ITPA", "NT5E", 
+                          "NUDT15", "XDH", "NUDT5", "ADPRM", "NUDT9", "NT5C1B", "NUDT16", 
+                          "PNP", "NUDT18", "HPRT1")
+)
+
+# Create default genes from all categories
+DEFAULT_GENES <- unique(unlist(GENE_CATEGORIES))
+
+# ===== NEW: SIMPLIFIED PATHWAY SCORING FUNCTIONS =====
+
+# Function to negate expression values for specific genes (PAOX and OAZ1)
+negate_polyamine_inhibitors <- function(data_matrix) {
+  tryCatch({
+    # Genes to negate for polyamine metabolism
+    genes_to_negate <- c("PAOX", "OAZ1")
+    
+    # Check which genes are present in the data
+    present_genes <- genes_to_negate[genes_to_negate %in% rownames(data_matrix)]
+    
+    if (length(present_genes) > 0) {
+      message(paste("Negating expression values for:", paste(present_genes, collapse = ", ")))
+      
+      # Create a copy of the matrix to avoid modifying original data
+      modified_matrix <- data_matrix
+      
+      # Negate the expression values for PAOX and OAZ1
+      for (gene in present_genes) {
+        modified_matrix[gene, ] <- -modified_matrix[gene, ]
+        message(paste("Negated expression values for", gene))
+      }
+      
+      return(modified_matrix)
+    } else {
+      message("No PAOX or OAZ1 genes found in dataset - no negation needed")
+      return(data_matrix)
+    }
+    
+  }, error = function(e) {
+    message(paste("Error negating polyamine inhibitors:", e$message))
+    return(data_matrix)
+  })
+}
+
+# Simplified function to calculate pathway scores (no special handling needed)
+calculate_pathway_score <- function(data_matrix, pathway_genes, pathway_name) {
+  tryCatch({
+    # Get available genes for this pathway
+    available_genes <- pathway_genes[pathway_genes %in% rownames(data_matrix)]
+    
+    if (length(available_genes) == 0) {
+      message(paste("No genes available for", pathway_name, "- requested:", paste(pathway_genes, collapse = ", ")))
+      return(rep(0, ncol(data_matrix)))
+    }
+    
+    # Extract expression data for pathway genes
+    pathway_expr <- data_matrix[available_genes, , drop = FALSE]
+    
+    # Standard averaging for all pathways (since PAOX/OAZ1 are already negated)
+    if (nrow(pathway_expr) == 1) {
+      return(pathway_expr[1, ])
+    } else {
+      return(colMeans(pathway_expr, na.rm = TRUE))
+    }
+    
+  }, error = function(e) {
+    message(paste("Error calculating pathway score for", pathway_name, ":", e$message))
+    return(rep(0, ncol(data_matrix)))
+  })
+}
+
+# Function to map genes to pathways
+map_genes_to_pathways <- function(genes) {
+  gene_pathway_map <- list()
+  
+  for (pathway_name in names(GENE_CATEGORIES)) {
+    pathway_genes <- GENE_CATEGORIES[[pathway_name]]
+    for (gene in genes) {
+      if (gene %in% pathway_genes) {
+        gene_pathway_map[[gene]] <- pathway_name
+      }
+    }
+  }
+  
+  # For genes not in any pathway, assign them to "Other Genes"
+  for (gene in genes) {
+    if (is.null(gene_pathway_map[[gene]])) {
+      gene_pathway_map[[gene]] <- "Other Genes"
+    }
+  }
+  
+  return(gene_pathway_map)
+}
+
+# ===== EMBEDDED FUNCTIONS =====
+
+# Function to load Visium data
+load_visium_data <- function(sample_name) {
+  tryCatch({
+    # Check if directory exists
+    data_dir <- file.path(VISIUM_PATH, sample_name)
+    if (!dir.exists(data_dir)) {
+      message(paste("Directory does not exist:", data_dir))
+      return(NULL)
+    }
+    
+    # Check if h5 file exists
+    h5_file <- file.path(data_dir, paste0(sample_name, "-filtered_feature_bc_matrix.h5"))
+    if (!file.exists(h5_file)) {
+      message(paste("H5 file does not exist:", h5_file))
+      return(NULL)
+    }
+    
+    spatial_data <- Load10X_Spatial(
+      data.dir = data_dir,
+      filename = paste0(sample_name, "-filtered_feature_bc_matrix.h5"),
+      assay = "Spatial",
+      slice = sample_name
+    )
+    
+    # Add sample metadata
+    sample_info <- get_sample_info(sample_name)
+    if (!is.null(sample_info)) {
+      spatial_data$sample_id <- sample_name
+      spatial_data$cancer_type <- sample_info$type_of_cancer
+      spatial_data$tissue_type <- sample_info$sampling_site
+      spatial_data$tissue_category <- sample_info$tissue_category
+      spatial_data$disease <- sample_info$disease
+      spatial_data$age <- sample_info$age
+      spatial_data$sex <- sample_info$sex
+    }
+    
+    # Data preprocessing
+    spatial_data[["percent.mt"]] <- PercentageFeatureSet(spatial_data, pattern = "^MT-")
+    spatial_data <- subset(spatial_data, subset = nFeature_Spatial > 200 & percent.mt < 20)
+    spatial_data <- SCTransform(spatial_data, assay = "Spatial", verbose = FALSE)
+    
+    # NEW: Apply negation to PAOX and OAZ1 in the SCT assay
+    spatial_data@assays$SCT@data <- negate_polyamine_inhibitors(spatial_data@assays$SCT@data)
+    
+    return(spatial_data)
+  }, error = function(e) {
+    message(paste("Error loading Visium data:", e$message))
+    return(NULL)
+  })
+}
+
+# Function to load scRNA data
+load_scrna_data <- function(sample_name, cancer_type) {
+  tryCatch({
+    if (cancer_type == "LUAD") {
+      data_path <- file.path(SCRNA_LUAD_PATH, paste0(sample_name, "_processed_data.txt"))
+    } else {
+      data_path <- file.path(SCRNA_SCLC_PATH, paste0(sample_name, "_processed_data.txt"))
+    }
+    
+    # Check if file exists
+    if (!file.exists(data_path)) {
+      message(paste("Data file does not exist:", data_path))
+      return(NULL)
+    }
+    
+    scrna_data_raw <- read.table(data_path, header = TRUE, row.names = 1, sep = "\t")
+    
+    if (ncol(scrna_data_raw) > nrow(scrna_data_raw)) {
+      scrna_data_raw <- t(scrna_data_raw)
+    }
+    
+    scrna <- CreateSeuratObject(counts = scrna_data_raw, project = sample_name, min.cells = 3, min.features = 200)
+    return(scrna)
+  }, error = function(e) {
+    message(paste("Error loading scRNA data:", e$message))
+    return(NULL)
+  })
+}
+
+# Helper function to get sample information
+get_sample_info <- function(sample_code) {
+  sample_row <- patient_data[patient_data$patient_code == sample_code, ]
+  if (nrow(sample_row) > 0) {
+    return(sample_row)
+  } else {
+    return(NULL)
+  }
+}
+
+# Function to get available genes from datasets
+get_available_genes <- function(spatial_data = NULL, scrna_data = NULL) {
+  all_genes <- c()
+  
+  if (!is.null(spatial_data)) {
+    all_genes <- c(all_genes, rownames(spatial_data))
+  }
+  
+  if (!is.null(scrna_data)) {
+    all_genes <- c(all_genes, rownames(scrna_data))
+  }
+  
+  # Remove duplicates and sort
+  unique_genes <- unique(all_genes)
+  return(sort(unique_genes))
+}
+
+# Function to validate genes against datasets
+validate_genes <- function(gene_list, spatial_data = NULL, scrna_data = NULL) {
+  results <- list()
+  
+  for (gene in gene_list) {
+    results[[gene]] <- list(
+      spatial = !is.null(spatial_data) && gene %in% rownames(spatial_data),
+      scrna = !is.null(scrna_data) && gene %in% rownames(scrna_data),
+      available = FALSE
+    )
+    
+    # Gene is available if it's in at least one dataset
+    results[[gene]]$available <- results[[gene]]$spatial || results[[gene]]$scrna
+  }
+  
+  return(results)
+}
+
+# Function to search genes (fuzzy matching)
+search_genes <- function(query, gene_list, max_results = 50) {
+  if (query == "" || length(gene_list) == 0) {
+    return(character(0))
+  }
+  
+  # Exact matches first
+  exact_matches <- gene_list[grepl(paste0("^", query, "$"), gene_list, ignore.case = TRUE)]
+  
+  # Starts with query
+  starts_with <- gene_list[grepl(paste0("^", query), gene_list, ignore.case = TRUE)]
+  starts_with <- starts_with[!starts_with %in% exact_matches]
+  
+  # Contains query
+  contains <- gene_list[grepl(query, gene_list, ignore.case = TRUE)]
+  contains <- contains[!contains %in% c(exact_matches, starts_with)]
+  
+  # Combine and limit results
+  results <- c(exact_matches, starts_with, contains)
+  return(head(results, max_results))
+}
+
+# Enhanced Spatial data processing and clustering with better cell type annotation
+process_spatial_data <- function(spatial_data) {
+  tryCatch({
+    # Clustering the spatial data
+    spatial_data <- RunPCA(spatial_data, assay = "SCT", verbose = FALSE)
+    spatial_data <- FindNeighbors(spatial_data, reduction = "pca", dims = 1:30)
+    spatial_data <- FindClusters(spatial_data, verbose = FALSE)
+    spatial_data <- RunUMAP(spatial_data, reduction = "pca", dims = 1:30)
+    
+    # Initialize with cluster names
+    spatial_data$cluster_names <- paste0("Cluster_", spatial_data$seurat_clusters)
+    
+    # Try SingleR annotation
+    tryCatch({
+      # Load reference dataset from SingleR
+      hpca.se <- BlueprintEncodeData()
+      
+      # Extract expression matrix
+      expr_matrix <- as.matrix(spatial_data@assays$SCT@data)
+      
+      # Perform SingleR annotation
+      cell_types <- SingleR(test = expr_matrix, ref = hpca.se, labels = hpca.se$label.main)
+      
+      # Adding individual cell type predictions
+      spatial_data$SingleR.labels <- cell_types$labels
+      
+      # Define the cell types of interest for lung tissue
+      valid_cell_types <- c("Epithelial cells", "Fibroblasts", "Macrophages", "Monocytes", 
+                            "B-cells", "CD4+ T-cells", "CD8+ T-cells", "NK cells", 
+                            "Endothelial cells", "Neutrophils", "Dendritic cells")
+      
+      # Create a table of SingleR predictions and Seurat clusters
+      cluster_cell_types <- table(spatial_data$SingleR.labels, spatial_data@meta.data$seurat_clusters)
+      
+      # Convert the table to a data frame and add proper column names
+      cluster_cell_types_df <- as.data.frame(cluster_cell_types) %>%
+        dplyr::rename(cell_type = Var1, cluster = Var2, count = Freq)
+      
+      # Filter for valid cell types and find the most frequent cell type for each cluster
+      most_frequent_types <- cluster_cell_types_df %>%
+        filter(cell_type %in% valid_cell_types) %>%
+        group_by(cluster) %>%
+        slice_max(order_by = count, n = 1) %>%
+        ungroup()
+      
+      # Create all_cell_types_per_cluster data frame
+      all_cell_types_per_cluster <- most_frequent_types %>%
+        dplyr::select(cluster, cell_type) %>%
+        dplyr::rename(predicted_cell_type = cell_type)
+      
+      # Get clusters that have valid cell types
+      valid_clusters <- all_cell_types_per_cluster$cluster
+      
+      # Create a mapping for clusters with the same cell type
+      cluster_mapping <- most_frequent_types %>%
+        group_by(cell_type) %>%
+        reframe(
+          original_clusters = list(cluster),
+          new_cluster = paste0("Cluster_", cell_type)
+        ) %>%
+        ungroup()
+      
+      # Create a lookup table for cluster remapping
+      cluster_lookup <- cluster_mapping %>%
+        unnest(cols = original_clusters) %>%
+        dplyr::select(original_clusters, new_cluster)
+      
+      # Map the new cluster labels to ALL cells in the Seurat object
+      spatial_data$merged_clusters <- plyr::mapvalues(
+        as.character(spatial_data$seurat_clusters),
+        from = as.character(cluster_lookup$original_clusters),
+        to = as.character(cluster_lookup$new_cluster),
+        warn_missing = FALSE
+      )
+      
+      # For clusters not in lookup (those without valid cell types), keep original cluster names
+      unmapped <- is.na(spatial_data$merged_clusters) | spatial_data$merged_clusters == as.character(spatial_data$seurat_clusters)
+      spatial_data$merged_clusters[unmapped] <- paste0("Cluster_", spatial_data$seurat_clusters[unmapped])
+      
+      # Clean up the labels by removing the "Cluster_" prefix for predicted cell types
+      spatial_data$predicted_cell_type <- gsub("Cluster_", "", spatial_data$merged_clusters)
+      
+      # For cells in clusters without valid cell types, label as "Unknown"
+      spatial_data$predicted_cell_type[!as.character(spatial_data$seurat_clusters) %in% as.character(valid_clusters)] <- "Unknown"
+      
+      # Ensure the 'predicted_cell_type' is a factor and order levels alphabetically
+      spatial_data$predicted_cell_type <- factor(spatial_data$predicted_cell_type, 
+                                                 levels = sort(unique(spatial_data$predicted_cell_type)))
+      
+      message("SingleR annotation completed successfully")
+      
+    }, error = function(e2) {
+      message(paste("SingleR annotation failed:", e2$message))
+      # Fallback to cluster names if SingleR fails
+      spatial_data$predicted_cell_type <- spatial_data$cluster_names
+      spatial_data$individual_cell_type <- spatial_data$cluster_names
+    })
+    
+    # Ensure predicted_cell_type exists
+    if (!"predicted_cell_type" %in% colnames(spatial_data@meta.data)) {
+      spatial_data$predicted_cell_type <- spatial_data$cluster_names
+    }
+    
+    return(spatial_data)
+  }, error = function(e) {
+    message(paste("Error in spatial data processing:", e$message))
+    return(spatial_data)
+  })
+}
+
+# scRNA data processing
+process_scrna_data <- function(scrna_data) {
+  tryCatch({
+    # Data preprocessing
+    scrna_data[["percent.mt"]] <- PercentageFeatureSet(scrna_data, pattern = "^MT-")
+    scrna_data <- subset(scrna_data, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < 20)
+    scrna_data <- SCTransform(scrna_data, verbose = FALSE)
+    
+    # NEW: Apply negation to PAOX and OAZ1 in the SCT assay
+    scrna_data@assays$SCT@data <- negate_polyamine_inhibitors(scrna_data@assays$SCT@data)
+    
+    # Integration and cell type annotation
+    scrna_data <- RunPCA(scrna_data)
+    scrna_data <- RunUMAP(scrna_data, dims = 1:30)
+    scrna_data <- FindNeighbors(scrna_data, dims = 1:30)
+    scrna_data <- FindClusters(scrna_data, resolution = 0.5)
+    
+    # Initialize with cluster names
+    scrna_data$cluster_names <- paste0("Cluster_", scrna_data$seurat_clusters)
+    
+    # Try SingleR annotation if possible
+    tryCatch({
+      # Load reference dataset from SingleR
+      hpca.se <- celldex::BlueprintEncodeData()
+      
+      # Extract expression matrix
+      expr_matrix <- as.matrix(scrna_data@assays$SCT@data)
+      
+      # Perform SingleR annotation
+      cell_types <- SingleR(test = expr_matrix, ref = hpca.se, labels = hpca.se$label.main)
+      
+      # Adding cell type predictions
+      scrna_data$SingleR.labels <- cell_types$labels
+      
+      # Process cell type annotations
+      # for SCLC
+      # valid_cell_types <- c("Epithelial cells", "Fibroblasts", "Macrophages", "Monocytes",
+      #                       "B-cells", "CD4+ T-cells", "CD8+ T-cells", "NK cells",
+      #                       "Endothelial cells", "Neutrophils", "Dendritic cells")
+      # for LUAD
+      valid_cell_types <- c("Epithelial cells", "Macrophages", "Monocytes",
+                            "B-cells", "CD4+ T-cells", "CD8+ T-cells")
+      
+      # Clean assignment of predicted cell types
+      scrna_data$predicted_cell_type <- as.character(scrna_data$SingleR.labels)
+      scrna_data$predicted_cell_type[!scrna_data$predicted_cell_type %in% valid_cell_types] <- "Other"
+      scrna_data$predicted_cell_type <- factor(scrna_data$predicted_cell_type)
+      
+    }, error = function(e2) {
+      message("SingleR annotation failed, using cluster IDs only")
+      scrna_data$predicted_cell_type <- scrna_data$cluster_names
+    })
+    
+    # Ensure predicted_cell_type exists
+    if (!"predicted_cell_type" %in% colnames(scrna_data@meta.data)) {
+      scrna_data$predicted_cell_type <- scrna_data$cluster_names
+    }
+    
+    return(scrna_data)
+  }, error = function(e) {
+    message(paste("Error in scRNA data processing:", e$message))
+    return(scrna_data)
+  })
+}
+
+# UPDATED: Enhanced generate_spatial_gene_plots function with simplified pathway scoring
+generate_spatial_gene_plots <- function(spatial_data, selected_genes, tissue_type = "SCC", display_mode = "clusters") {
+  plots <- list()
+  
+  # Filter out "Other" cell types for plotting
+  spatial_data_filtered <- spatial_data
+  if ("predicted_cell_type" %in% colnames(spatial_data@meta.data)) {
+    other_cells <- spatial_data$predicted_cell_type == "Other"
+    if (any(other_cells)) {
+      spatial_data_filtered <- subset(spatial_data, predicted_cell_type != "Other")
+      message(paste("Excluded", sum(other_cells), "cells labeled as 'Other' from spatial plots"))
+    }
+  }
+  
+  # Spatial plotting setting  
+  if (tissue_type == "adj") {
+    size_spatial <- 2  
+  } else {
+    size_spatial <- 3  
+  }
+  
+  # Enhanced cluster plot with proper toggle between clusters and cell types
+  if (display_mode == "cell_types") {
+    # Check if we have proper cell type annotations
+    if ("predicted_cell_type" %in% colnames(spatial_data_filtered@meta.data)) {
+      # Check if predicted_cell_type contains actual cell type names (not just cluster names)
+      cell_types <- unique(spatial_data_filtered$predicted_cell_type)
+      has_real_cell_types <- any(grepl("cells|Epithelial|Fibroblast|Macrophage|Monocyte|NK|Endothelial|Neutrophil|Dendritic|Unknown", cell_types, ignore.case = TRUE))
+      
+      if (has_real_cell_types) {
+        cell_type_colors <- c(
+          "B-cells" = "red3", "CD4+ T-cells" = "blue3", "CD8+ T-cells" = "green4",
+          "Endothelial cells" = "purple3", "Epithelial cells" = "orange",
+          "Fibroblasts" = "yellow3", "Macrophages" = "peru",
+          "Monocytes" = "pink2", "NK cells" = "grey"
+        )
+        
+        cluster_plot <- SpatialDimPlot(spatial_data_filtered, group.by = "predicted_cell_type", 
+                                       pt.size.factor = 3, label = FALSE, label.size = 8) +
+          scale_fill_manual(values = cell_type_colors) +
+          theme(legend.text = element_text(size = 10),
+                legend.title = element_text(size = 12, face = "bold"),
+                legend.key.size = unit(0.8, "cm"),
+                text = element_text(size = 12),
+                plot.title = element_text(size = 14, face = "bold"),
+                plot.background = element_rect(fill = "white", colour = NA),
+                panel.background = element_rect(fill = "white", colour = NA)) +
+          guides(fill = guide_legend(override.aes = list(size = 4), title = "Cell Types")) +
+          ggtitle("Predicted Cell Types (SingleR)")
+      } else {
+        # Fallback to cluster-based cell types if SingleR didn't work properly
+        cluster_plot <- SpatialDimPlot(spatial_data_filtered, group.by = "predicted_cell_type", 
+                                       pt.size.factor = 2, label = TRUE, label.size = 3) +
+          ggtitle("Cell Types (Cluster-based) -") +
+          theme(legend.text = element_text(size = 10),
+                text = element_text(size = 12),
+                plot.title = element_text(size = 14, face = "bold"),
+                plot.background = element_rect(fill = "white", colour = NA),
+                panel.background = element_rect(fill = "white", colour = NA))
+      }
+    } else {
+      # Fallback to clusters if no cell types available
+      cluster_plot <- SpatialDimPlot(spatial_data_filtered, group.by = "seurat_clusters", 
+                                     pt.size.factor = 2, label = TRUE, label.size = 3) +
+        ggtitle("Seurat Clusters (Cell types not available)") +
+        theme(text = element_text(size = 12),
+              plot.title = element_text(size = 14, face = "bold"),
+              plot.background = element_rect(fill = "white", colour = NA),
+              panel.background = element_rect(fill = "white", colour = NA))
+    }
+  } else {
+    # Display clusters
+    cluster_plot <- SpatialDimPlot(spatial_data_filtered, group.by = "seurat_clusters", 
+                                   pt.size.factor = 2, label = TRUE, label.size = 3) +
+      ggtitle("Seurat Clusters") +
+      theme(legend.text = element_text(size = 10),
+            text = element_text(size = 12),
+            plot.title = element_text(size = 14, face = "bold"),
+            plot.background = element_rect(fill = "white", colour = NA),
+            panel.background = element_rect(fill = "white", colour = NA))
+  }
+  plots$cluster_plot <- cluster_plot
+  
+  # Gene expression plots
+  available_genes <- selected_genes[selected_genes %in% rownames(spatial_data_filtered)]
+  
+  if (length(available_genes) > 0) {
+    # Feature plots for each gene - MAINTAIN ORDER
+    feature_plots <- list()
+    ylorrd_palette <- brewer.pal(9, "YlOrRd")
+    
+    # Use the same order as selected_genes
+    for (gene in available_genes) {
+      feature_plot <- SpatialFeaturePlot(spatial_data_filtered, features = gene, 
+                                         pt.size.factor = size_spatial) +
+        scale_fill_gradientn(colors = ylorrd_palette) +
+        theme(legend.title = element_text(size = 14),
+              text = element_text(size = 12),
+              plot.title = element_text(size = 14, face = "bold"),
+              plot.background = element_rect(fill = "white", colour = NA),
+              panel.background = element_rect(fill = "white", colour = NA))
+      feature_plots[[gene]] <- feature_plot
+    }
+    
+    if (length(feature_plots) > 0) {
+      combined_features <- patchwork::wrap_plots(plotlist = feature_plots, nrow = 2)
+      plots$feature_plot <- combined_features
+    }
+    
+    # Enhanced circular plot for gene expression by cell type - MAINTAIN GENE ORDER
+    if (display_mode == "cell_types" && "predicted_cell_type" %in% colnames(spatial_data_filtered@meta.data) && length(available_genes) > 0) {
+      tryCatch({
+        # Create a data frame for the circular plot
+        circular_data <- data.frame()
+        
+        # Check if we have meaningful cell types
+        cell_types <- unique(spatial_data_filtered$predicted_cell_type)
+        has_meaningful_types <- any(grepl("cells|Epithelial|Fibroblast|Macrophage|Monocyte|NK|Endothelial|Neutrophil|Dendritic|Unknown", cell_types, ignore.case = TRUE))
+        
+        if (has_meaningful_types) {
+          # PRESERVE GENE ORDER - use available_genes (which maintains selection order)
+          for (gene in available_genes) {
+            if (gene %in% rownames(spatial_data_filtered)) {
+              # Get expression values for this gene
+              gene_expr <- FetchData(spatial_data_filtered, vars = gene)[[1]]
+              cell_types_vec <- spatial_data_filtered$predicted_cell_type
+              
+              # Calculate statistics for each cell type
+              for (cell_type in unique(cell_types_vec)) {
+                cell_indices <- which(cell_types_vec == cell_type)
+                if (length(cell_indices) > 0) {
+                  cell_expr <- gene_expr[cell_indices]
+                  
+                  # Calculate fraction of cells expressing the gene (>0)
+                  fraction <- sum(cell_expr > 0) / length(cell_expr) * 100
+                  
+                  # Calculate mean expression
+                  mean_expr <- mean(cell_expr)
+                  
+                  # Add to data frame
+                  circular_data <- rbind(circular_data, data.frame(
+                    Gene = gene,
+                    Cell_Type = cell_type,
+                    Fraction = fraction,
+                    Mean_Expression = mean_expr,
+                    stringsAsFactors = FALSE
+                  ))
+                }
+              }
+            }
+          }
+          
+          # Normalize mean expression values from 0 to 1
+          if (nrow(circular_data) > 0) {
+            min_expr <- min(circular_data$Mean_Expression, na.rm = TRUE)
+            max_expr <- max(circular_data$Mean_Expression, na.rm = TRUE)
+            if (max_expr > min_expr) {
+              circular_data$Mean_Expression_Normalized <- (circular_data$Mean_Expression - min_expr) / (max_expr - min_expr)
+            } else {
+              circular_data$Mean_Expression_Normalized <- 0
+            }
+          }
+          
+          # Create the circular plot with PRESERVED GENE ORDER
+          if (nrow(circular_data) > 0) {
+            # Set Gene as factor with levels in the order of available_genes
+            circular_data$Gene <- factor(circular_data$Gene, levels = available_genes)
+            
+            circular_plot <- ggplot(circular_data, aes(x = Gene, y = Cell_Type, 
+                                                       fill = Mean_Expression_Normalized, size = Fraction)) +
+              geom_point(shape = 21, color = "black", stroke = 0.5) +
+              scale_size_continuous(range = c(2, 12), name = "Fraction (%)", limits = c(0, 100)) +
+              scale_fill_gradientn(colors = brewer.pal(9, "YlOrRd"), name = "Mean Expression\n(0-1)", limits = c(0, 1)) +
+              labs(x = "Genes", y = "Cell Types", title = "Gene Expression by Cell Type") +
+              theme_classic() +
+              theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+                    axis.text.y = element_text(size = 10),
+                    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+                    legend.title = element_text(size = 10),
+                    text = element_text(size = 12),
+                    plot.background = element_rect(fill = "white", colour = NA),
+                    panel.background = element_rect(fill = "white", colour = NA))
+            
+            plots$circular_plot <- circular_plot
+          } else {
+            plots$circular_plot <- ggplot() + 
+              ggtitle("No expression data for selected genes") + 
+              theme_void()
+          }
+        } else {
+          plots$circular_plot <- ggplot() + 
+            ggtitle("Cell type annotation incomplete - showing clusters instead") + 
+            theme_void()
+        }
+      }, error = function(e) {
+        plots$circular_plot <- ggplot() + 
+          ggtitle(paste("Circular plot error:", substr(e$message, 1, 50))) + 
+          theme_void()
+        message(paste("Circular plot error:", e$message))
+      })
+    } else {
+      plots$circular_plot <- ggplot() + 
+        ggtitle("Switch to Cell Types view to see circular plot") + 
+        theme_void()
+    }
+    
+    # Gene percentage by cell type (stacked bar plot) for SPATIAL DATA - MAINTAIN GENE ORDER
+    if ("predicted_cell_type" %in% colnames(spatial_data_filtered@meta.data)) {
+      gene_percentage_df <- data.frame()
+      
+      # Check if we have meaningful cell types
+      cell_types <- unique(spatial_data_filtered$predicted_cell_type)
+      has_meaningful_types <- any(grepl("cells|Epithelial|Fibroblast|Macrophage|Monocyte|NK|Endothelial|Neutrophil|Dendritic|Unknown", cell_types, ignore.case = TRUE))
+      
+      if (has_meaningful_types) {
+        # Use available_genes to maintain order
+        for (gene in available_genes) {
+          if (gene %in% rownames(spatial_data_filtered@assays$SCT@data)) {
+            gene_expr <- spatial_data_filtered@assays$SCT@data[gene, ]
+            total_cells <- length(gene_expr[gene_expr > 0])
+            
+            if (total_cells > 0) {  # Only proceed if there are expressing cells
+              for (cluster in unique(spatial_data_filtered$predicted_cell_type)) {
+                cluster_cells <- which(spatial_data_filtered$predicted_cell_type == cluster)
+                percentage_expressing <- sum(gene_expr[cluster_cells] > 0) / total_cells * 100
+                
+                gene_percentage_df <- rbind(gene_percentage_df,
+                                            data.frame(Gene = gene,
+                                                       Predicted_Cell_Type = cluster,
+                                                       Percentage = percentage_expressing))
+              }
+            }
+          }
+        }
+        
+        if (nrow(gene_percentage_df) > 0) {
+          # Set Gene as factor with preserved order
+          gene_percentage_df$Gene <- factor(gene_percentage_df$Gene, levels = available_genes)
+          
+          # Define consistent cell type colors
+          cell_type_colors <- c(
+            "B-cells" = "red3", "CD4+ T-cells" = "blue3", "CD8+ T-cells" = "green4",
+            "Endothelial cells" = "purple3", "Epithelial cells" = "orange",
+            "Fibroblasts" = "yellow3", "Macrophages" = "peru",
+            "Monocytes" = "pink2", "NK cells" = "grey"
+          )
+          
+          percentage_plot <- ggplot(gene_percentage_df,
+                                    aes(x = Gene, y = Percentage, fill = Predicted_Cell_Type)) +
+            geom_bar(stat = "identity", position = "stack", width = 0.4) +
+            labs(title = paste0("Gene Expression by Cell Type - Spatial - ", tissue_type),
+                 x = "", y = "Cell Type %") +
+            scale_fill_manual(values = cell_type_colors) +
+            theme_classic() +
+            theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+                  axis.text.y = element_text(size = 12),
+                  axis.title.y = element_text(size = 12),
+                  legend.position = "right",
+                  plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+                  text = element_text(size = 12),
+                  plot.background = element_rect(fill = "white", colour = NA),
+                  panel.background = element_rect(fill = "white", colour = NA))
+          
+          plots$percentage_plot <- percentage_plot
+        } else {
+          plots$percentage_plot <- ggplot() + 
+            ggtitle("No gene expression data available for percentage plot") + 
+            theme_void()
+        }
+      } else {
+        plots$percentage_plot <- ggplot() + 
+          ggtitle("Cell type annotation incomplete") + 
+          theme_void()
+      }
+    } else {
+      plots$percentage_plot <- ggplot() + 
+        ggtitle("Cell type predictions not available") + 
+        theme_void()
+    }
+    
+    # Generate pathway plots for SPATIAL DATA with simplified scoring
+    if ("predicted_cell_type" %in% colnames(spatial_data_filtered@meta.data) && length(available_genes) > 0) {
+      pathway_plots <- generate_spatial_pathway_plots(spatial_data_filtered, available_genes, tissue_type)
+      
+      # Add pathway plots to the main plots list
+      if (!is.null(pathway_plots$pathway_percentage_plot)) {
+        plots$pathway_percentage_plot <- pathway_plots$pathway_percentage_plot
+      }
+      if (!is.null(pathway_plots$pathway_heatmap)) {
+        plots$pathway_heatmap <- pathway_plots$pathway_heatmap
+      }
+    } else {
+      plots$pathway_percentage_plot <- ggplot() + 
+        ggtitle("Cell type predictions not available for pathway analysis") + 
+        theme_void()
+      plots$pathway_heatmap <- ggplot() + 
+        ggtitle("Cell type predictions not available for pathway analysis") + 
+        theme_void()
+    }
+  }
+  
+  return(plots)
+}
+
+# UPDATED: Generate pathway-aggregated plots for spatial data with simplified scoring
+generate_spatial_pathway_plots <- function(spatial_data, selected_genes, tissue_type) {
+  plots <- list()
+  
+  # Filter out "Other" cell types for plotting
+  spatial_data_filtered <- spatial_data
+  if ("predicted_cell_type" %in% colnames(spatial_data@meta.data)) {
+    other_cells <- spatial_data$predicted_cell_type == "Other"
+    if (any(other_cells)) {
+      spatial_data_filtered <- subset(spatial_data, predicted_cell_type != "Other")
+      message(paste("Excluded", sum(other_cells), "cells labeled as 'Other' from spatial pathway plots"))
+    }
+  }
+  
+  # Available genes - MAINTAIN ORDER
+  available_genes <- selected_genes[selected_genes %in% rownames(spatial_data_filtered)]
+  
+  if (length(available_genes) > 0 && "predicted_cell_type" %in% colnames(spatial_data_filtered@meta.data)) {
+    
+    # Check if we have meaningful cell types
+    cell_types <- unique(spatial_data_filtered$predicted_cell_type)
+    has_meaningful_types <- any(grepl("cells|Epithelial|Fibroblast|Macrophage|Monocyte|NK|Endothelial|Neutrophil|Dendritic|Unknown", cell_types, ignore.case = TRUE))
+    
+    if (has_meaningful_types) {
+      # Map genes to pathways
+      gene_pathway_map <- map_genes_to_pathways(available_genes)
+      
+      # Create pathway-level expression data using simplified scoring
+      pathway_expression_df <- data.frame()
+      
+      # Get unique pathways from the selected genes
+      unique_pathways <- unique(unlist(gene_pathway_map))
+      
+      # Get expression matrix for calculation (PAOX and OAZ1 are already negated)
+      expr_matrix <- as.matrix(spatial_data_filtered@assays$SCT@data)
+      
+      for (pathway in unique_pathways) {
+        # Get genes belonging to this pathway
+        pathway_genes <- names(gene_pathway_map)[sapply(gene_pathway_map, function(x) x == pathway)]
+        pathway_genes_available <- pathway_genes[pathway_genes %in% available_genes]
+        
+        if (length(pathway_genes_available) > 0) {
+          # Use simplified pathway scoring (no special handling needed)
+          pathway_scores <- calculate_pathway_score(expr_matrix, pathway_genes_available, pathway)
+          
+          # Get cell type information
+          cell_types_vec <- spatial_data_filtered$predicted_cell_type
+          
+          # Calculate statistics for each cell type
+          for (cell_type in unique(cell_types_vec)) {
+            cell_indices <- which(cell_types_vec == cell_type)
+            if (length(cell_indices) > 0) {
+              cell_scores <- pathway_scores[cell_indices]
+              
+              # Cells with scores > 0 are considered "expressing"
+              total_expressing_cells <- sum(cell_scores > 0)
+              
+              # Add to data frame
+              pathway_expression_df <- rbind(pathway_expression_df, data.frame(
+                Pathway = pathway,
+                Predicted_Cell_Type = cell_type,
+                Expressing_Cells = total_expressing_cells,
+                Mean_Expression = mean(cell_scores, na.rm = TRUE),
+                stringsAsFactors = FALSE
+              ))
+            }
+          }
+        }
+      }
+      
+      # Create pathway percentage plot
+      if (nrow(pathway_expression_df) > 0) {
+        # Calculate percentage for each pathway-cell type combination
+        pathway_percentage_df <- data.frame()
+        
+        for (pathway in unique(pathway_expression_df$Pathway)) {
+          pathway_data <- pathway_expression_df[pathway_expression_df$Pathway == pathway, ]
+          total_expressing <- sum(pathway_data$Expressing_Cells)
+          
+          if (total_expressing > 0) {  # Only proceed if there are expressing cells
+            for (cell_type in unique(pathway_data$Predicted_Cell_Type)) {
+              cell_expressing <- pathway_data[pathway_data$Predicted_Cell_Type == cell_type, "Expressing_Cells"]
+              if (length(cell_expressing) > 0) {
+                percentage <- (cell_expressing / total_expressing) * 100
+              } else {
+                percentage <- 0
+              }
+              
+              pathway_percentage_df <- rbind(pathway_percentage_df, data.frame(
+                Pathway = pathway,
+                Predicted_Cell_Type = cell_type,
+                Percentage = percentage,
+                stringsAsFactors = FALSE
+              ))
+            }
+          }
+        }
+        
+        if (nrow(pathway_percentage_df) > 0) {
+          # Order pathways consistently
+          pathway_order <- c(names(GENE_CATEGORIES), "Other Genes")
+          available_pathways <- pathway_order[pathway_order %in% unique(pathway_percentage_df$Pathway)]
+          pathway_percentage_df$Pathway <- factor(pathway_percentage_df$Pathway, levels = available_pathways)
+          
+          # Color palette for cell types
+          cell_type_colors <- c(
+            "B-cells" = "red3", "CD4+ T-cells" = "blue3", "CD8+ T-cells" = "green4",
+            "Endothelial cells" = "purple3", "Epithelial cells" = "orange",
+            "Fibroblasts" = "yellow3", "Macrophages" = "peru",
+            "Monocytes" = "pink2", "NK cells" = "grey"
+          )
+          
+          # Create pathway percentage plot
+          pathway_percentage_plot <- ggplot(pathway_percentage_df,
+                                            aes(x = Pathway, y = Percentage, fill = Predicted_Cell_Type)) +
+            geom_bar(stat = "identity", position = "stack", width = 0.6) +
+            labs(title = paste0("Pathway Expression by Cell Type - Spatial - ", tissue_type),
+                 x = "Metabolic Pathway", y = "Cell Type %") +
+            scale_fill_manual(values = cell_type_colors) +
+            theme_classic() +
+            theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+                  axis.text.y = element_text(size = 12),
+                  axis.title.y = element_text(size = 12),
+                  legend.position = "right",
+                  plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+                  text = element_text(size = 12),
+                  plot.background = element_rect(fill = "white", colour = NA),
+                  panel.background = element_rect(fill = "white", colour = NA))
+          
+          plots$pathway_percentage_plot <- pathway_percentage_plot
+          
+          # Create pathway expression heatmap
+          pathway_heatmap_data <- pathway_expression_df %>%
+            dplyr::select(Pathway, Predicted_Cell_Type, Mean_Expression) %>%
+            tidyr::spread(key = Predicted_Cell_Type, value = Mean_Expression, fill = 0)
+          
+          # Convert to matrix for heatmap
+          pathway_matrix <- as.matrix(pathway_heatmap_data[,-1])
+          rownames(pathway_matrix) <- pathway_heatmap_data$Pathway
+          
+          # Normalize by row (pathway) for better visualization
+          pathway_matrix_norm <- t(apply(pathway_matrix, 1, function(x) (x - min(x)) / (max(x) - min(x) + 1e-6)))
+          
+          # Convert back to long format for ggplot
+          pathway_heatmap_long <- reshape2::melt(pathway_matrix_norm)
+          colnames(pathway_heatmap_long) <- c("Pathway", "Cell_Type", "Normalized_Expression")
+          
+          # Order pathways
+          pathway_heatmap_long$Pathway <- factor(pathway_heatmap_long$Pathway, levels = available_pathways)
+          
+          # Create heatmap
+          pathway_heatmap <- ggplot(pathway_heatmap_long, aes(x = Cell_Type, y = Pathway, fill = Normalized_Expression)) +
+            geom_tile(color = "white") +
+            scale_fill_gradientn(colors = brewer.pal(9, "YlOrRd"), name = "Normalized\nExpression") +
+            labs(title = paste0("Pathway Expression Heatmap - Spatial - ", tissue_type),
+                 x = "Cell Type", y = "Metabolic Pathway") +
+            theme_classic() +
+            theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+                  axis.text.y = element_text(size = 10),
+                  plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+                  text = element_text(size = 12),
+                  plot.background = element_rect(fill = "white", colour = NA),
+                  panel.background = element_rect(fill = "white", colour = NA))
+          
+          plots$pathway_heatmap <- pathway_heatmap
+        } else {
+          plots$pathway_percentage_plot <- ggplot() + 
+            ggtitle("No pathway data available") + 
+            theme_void()
+          plots$pathway_heatmap <- ggplot() + 
+            ggtitle("No pathway data available") + 
+            theme_void()
+        }
+      } else {
+        plots$pathway_percentage_plot <- ggplot() + 
+          ggtitle("No pathway data available") + 
+          theme_void()
+        plots$pathway_heatmap <- ggplot() + 
+          ggtitle("No pathway data available") + 
+          theme_void()
+      }
+    } else {
+      plots$pathway_percentage_plot <- ggplot() + 
+        ggtitle("Cell type annotation incomplete") + 
+        theme_void()
+      plots$pathway_heatmap <- ggplot() + 
+        ggtitle("Cell type annotation incomplete") + 
+        theme_void()
+    }
+  } else {
+    plots$pathway_percentage_plot <- ggplot() + 
+      ggtitle("Cell type predictions not available for pathway analysis") + 
+      theme_void()
+    plots$pathway_heatmap <- ggplot() + 
+      ggtitle("Cell type predictions not available for pathway analysis") + 
+      theme_void()
+  }
+  
+  return(plots)
+}
+
+# Generate scRNA gene expression plots with preserved gene order and simplified pathways
+generate_scrna_gene_plots <- function(scrna_data, selected_genes, cancer_type, tissue_type) {
+  plots <- list()
+  
+  # Define consistent cell type colors
+  cell_type_colors <- c(
+    "B-cells" = "red3", "CD4+ T-cells" = "blue3", "CD8+ T-cells" = "green4",
+    "Endothelial cells" = "purple3", "Epithelial cells" = "orange",
+    "Fibroblasts" = "yellow3", "Macrophages" = "peru",
+    "Monocytes" = "pink2", "NK cells" = "grey"
+  )
+  
+  # Filter out "Other" cell types for plotting
+  scrna_data_filtered <- scrna_data
+  if ("predicted_cell_type" %in% colnames(scrna_data@meta.data)) {
+    other_cells <- scrna_data$predicted_cell_type == "Other"
+    if (any(other_cells)) {
+      scrna_data_filtered <- subset(scrna_data, predicted_cell_type != "Other")
+      message(paste("Excluded", sum(other_cells), "cells labeled as 'Other' from scRNA plots"))
+    }
+  }
+  
+  # UMAP plot colored by predicted cell type
+  if ("predicted_cell_type" %in% colnames(scrna_data_filtered@meta.data)) {
+    umap_plot <- DimPlot(scrna_data_filtered, group.by = "predicted_cell_type", label = FALSE, label.size = 5) +
+      scale_color_manual(values = cell_type_colors) + 
+      ggtitle("Predicted Cell Types") +
+      theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+            legend.text = element_text(size = 10),
+            text = element_text(size = 12),
+            plot.background = element_rect(fill = "white", colour = NA),
+            panel.background = element_rect(fill = "white", colour = NA))
+  } else {
+    umap_plot <- DimPlot(scrna_data_filtered, group.by = "seurat_clusters", label = TRUE, label.size = 3) +
+      ggtitle("Seurat Clusters") +
+      theme(text = element_text(size = 12),
+            plot.title = element_text(size = 14, face = "bold"),
+            plot.background = element_rect(fill = "white", colour = NA),
+            panel.background = element_rect(fill = "white", colour = NA))
+  }
+  plots$umap_plot <- umap_plot
+  
+  # Available genes - MAINTAIN ORDER
+  available_genes <- selected_genes[selected_genes %in% rownames(scrna_data_filtered)]
+  
+  if (length(available_genes) > 0) {
+    # Feature plots for genes - MAINTAIN ORDER
+    feature_plots <- list()
+    for (gene in available_genes) {  # Use available_genes to maintain order
+      feature_plot <- FeaturePlot(scrna_data_filtered, features = gene) +
+        ggtitle(gene) +
+        theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+              text = element_text(size = 12),
+              plot.background = element_rect(fill = "white", colour = NA),
+              panel.background = element_rect(fill = "white", colour = NA))
+      feature_plots[[gene]] <- feature_plot
+    }
+    
+    if (length(feature_plots) > 0) {
+      combined_features <- patchwork::wrap_plots(plotlist = feature_plots, ncol = 2)
+      plots$feature_plot <- combined_features
+    }
+    
+    # Circular plot for scRNA data - MAINTAIN GENE ORDER
+    if ("predicted_cell_type" %in% colnames(scrna_data_filtered@meta.data)) {
+      tryCatch({
+        # Create a data frame for the circular plot
+        circular_data <- data.frame()
+        
+        # Check if we have meaningful cell types
+        cell_types <- unique(scrna_data_filtered$predicted_cell_type)
+        has_meaningful_types <- any(grepl("cells|Epithelial|Fibroblast|Macrophage|Monocyte|NK|Endothelial|Neutrophil|Dendritic|Unknown", cell_types, ignore.case = TRUE))
+        
+        if (has_meaningful_types) {
+          # PRESERVE GENE ORDER - use available_genes (which maintains selection order)
+          for (gene in available_genes) {
+            if (gene %in% rownames(scrna_data_filtered)) {
+              # Get expression values for this gene
+              gene_expr <- FetchData(scrna_data_filtered, vars = gene)[[1]]
+              cell_types_vec <- scrna_data_filtered$predicted_cell_type
+              
+              # Calculate statistics for each cell type
+              for (cell_type in unique(cell_types_vec)) {
+                cell_indices <- which(cell_types_vec == cell_type)
+                if (length(cell_indices) > 0) {
+                  cell_expr <- gene_expr[cell_indices]
+                  
+                  # Calculate fraction of cells expressing the gene (>0)
+                  fraction <- sum(cell_expr > 0) / length(cell_expr) * 100
+                  
+                  # Calculate mean expression
+                  mean_expr <- mean(cell_expr)
+                  
+                  # Add to data frame
+                  circular_data <- rbind(circular_data, data.frame(
+                    Gene = gene,
+                    Cell_Type = cell_type,
+                    Fraction = fraction,
+                    Mean_Expression = mean_expr,
+                    stringsAsFactors = FALSE
+                  ))
+                }
+              }
+            }
+          }
+          
+          # Normalize mean expression values from 0 to 1
+          if (nrow(circular_data) > 0) {
+            min_expr <- min(circular_data$Mean_Expression, na.rm = TRUE)
+            max_expr <- max(circular_data$Mean_Expression, na.rm = TRUE)
+            if (max_expr > min_expr) {
+              circular_data$Mean_Expression_Normalized <- (circular_data$Mean_Expression - min_expr) / (max_expr - min_expr)
+            } else {
+              circular_data$Mean_Expression_Normalized <- 0
+            }
+          }
+          
+          # Create the circular plot with PRESERVED GENE ORDER
+          if (nrow(circular_data) > 0) {
+            # Set Gene as factor with levels in the order of available_genes
+            circular_data$Gene <- factor(circular_data$Gene, levels = available_genes)
+            
+            circular_plot <- ggplot(circular_data, aes(x = Gene, y = Cell_Type, 
+                                                       fill = Mean_Expression_Normalized, size = Fraction)) +
+              geom_point(shape = 21, color = "black", stroke = 0.5) +
+              scale_size_continuous(range = c(2, 12), name = "Fraction (%)", limits = c(0, 100)) +
+              scale_fill_gradientn(colors = brewer.pal(9, "YlOrRd"), name = "Mean Expression\n(0-1)", limits = c(0, 1)) +
+              labs(x = "Genes", y = "Cell Types", title = "Gene Expression by Cell Type") +
+              theme_classic() +
+              theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+                    axis.text.y = element_text(size = 10),
+                    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+                    legend.title = element_text(size = 10),
+                    text = element_text(size = 12),
+                    plot.background = element_rect(fill = "white", colour = NA),
+                    panel.background = element_rect(fill = "white", colour = NA))
+            
+            plots$circular_plot <- circular_plot
+          } else {
+            plots$circular_plot <- ggplot() + 
+              ggtitle("No expression data for selected genes") + 
+              theme_void()
+          }
+        } else {
+          plots$circular_plot <- ggplot() + 
+            ggtitle("Cell type annotation incomplete") + 
+            theme_void()
+        }
+      }, error = function(e) {
+        plots$circular_plot <- ggplot() + 
+          ggtitle(paste("Circular plot error:", substr(e$message, 1, 50))) + 
+          theme_void()
+        message(paste("Circular plot error:", e$message))
+      })
+    } else {
+      plots$circular_plot <- ggplot() + 
+        ggtitle("Cell type predictions not available") + 
+        theme_void()
+    }
+    
+    # Gene expression by cell type - MAINTAIN GENE ORDER
+    if ("predicted_cell_type" %in% colnames(scrna_data_filtered@meta.data)) {
+      gene_expression <- FetchData(scrna_data_filtered, vars = c(available_genes, "predicted_cell_type"))
+      gene_long <- reshape2::melt(gene_expression, id.vars = "predicted_cell_type", 
+                                  variable.name = "Gene", value.name = "Expression")
+      
+      # Set Gene as factor with preserved order
+      gene_long$Gene <- factor(gene_long$Gene, levels = available_genes)
+      
+      violin_plot <- ggplot(gene_long, aes(x = Gene, y = Expression, fill = predicted_cell_type)) +
+        geom_violin(scale = "width", trim = FALSE, alpha = 0.7) +
+        theme_classic() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1),
+              legend.position = "bottom",
+              text = element_text(size = 12),
+              plot.title = element_text(size = 14, face = "bold"),
+              plot.background = element_rect(fill = "white", colour = NA),
+              panel.background = element_rect(fill = "white", colour = NA)) +
+        labs(x = "Gene", y = "Expression", fill = "Cell Type", 
+             title = "Gene Expression Distribution")
+      plots$violin_plot <- violin_plot
+      
+      # Cell type proportions
+      cell_type_counts <- table(scrna_data_filtered$predicted_cell_type)
+      prop_data <- data.frame(
+        CellType = names(cell_type_counts),
+        Count = as.numeric(cell_type_counts),
+        Proportion = as.numeric(cell_type_counts) / sum(cell_type_counts) * 100
+      )
+      
+      prop_plot <- ggplot(prop_data, aes(x = reorder(CellType, -Proportion), 
+                                         y = Proportion, fill = CellType)) +
+        geom_bar(stat = "identity") +
+        theme_classic() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1),
+              legend.position = "none",
+              text = element_text(size = 12),
+              plot.title = element_text(size = 14, face = "bold"),
+              plot.background = element_rect(fill = "white", colour = NA),
+              panel.background = element_rect(fill = "white", colour = NA)) +
+        labs(x = "Cell Type", y = "Proportion (%)", title = "Cell Type Distribution")
+      plots$proportion_plot <- prop_plot
+      
+      # Gene percentage by cell type (stacked bar plot) - MAINTAIN GENE ORDER
+      gene_percentage_df <- data.frame()
+      
+      # Use available_genes to maintain order
+      for (gene in available_genes) {
+        if (gene %in% rownames(scrna_data_filtered@assays$SCT@data)) {
+          gene_expr <- scrna_data_filtered@assays$SCT@data[gene, ]
+          total_cells <- length(gene_expr[gene_expr > 0])
+          
+          for (cluster in unique(scrna_data_filtered$predicted_cell_type)) {
+            cluster_cells <- which(scrna_data_filtered$predicted_cell_type == cluster)
+            percentage_expressing <- sum(gene_expr[cluster_cells] > 0) / total_cells * 100
+            
+            gene_percentage_df <- rbind(gene_percentage_df,
+                                        data.frame(Gene = gene,
+                                                   Predicted_Cell_Type = cluster,
+                                                   Percentage = percentage_expressing))
+          }
+        }
+      }
+      
+      if (nrow(gene_percentage_df) > 0) {
+        # Set Gene as factor with preserved order
+        gene_percentage_df$Gene <- factor(gene_percentage_df$Gene, levels = available_genes)
+        
+        cell_type_colors <- c(
+          "B-cells" = "red3", "CD4+ T-cells" = "blue3", "CD8+ T-cells" = "green4",
+          "Endothelial cells" = "purple3", "Epithelial cells" = "orange",
+          "Fibroblasts" = "yellow3", "Macrophages" = "peru",
+          "Monocytes" = "pink2", "NK cells" = "grey"
+        )
+        
+        percentage_plot <- ggplot(gene_percentage_df,
+                                  aes(x = Gene, y = Percentage, fill = Predicted_Cell_Type)) +
+          geom_bar(stat = "identity", position = "stack", width = 0.4) +
+          labs(title = paste0("Gene Expression by Cell Type - ", cancer_type, " - ", tissue_type, ""),
+               x = "", y = "Cell Type %") +
+          scale_fill_manual(values = cell_type_colors) +
+          theme_classic() +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+                axis.text.y = element_text(size = 12),
+                axis.title.y = element_text(size = 12),
+                legend.position = "right",
+                plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+                text = element_text(size = 12),
+                plot.background = element_rect(fill = "white", colour = NA),
+                panel.background = element_rect(fill = "white", colour = NA))
+        
+        plots$percentage_plot <- percentage_plot
+      }
+    }
+  }
+  
+  if ("predicted_cell_type" %in% colnames(scrna_data_filtered@meta.data) && length(available_genes) > 0) {
+    # Generate pathway plots with simplified scoring
+    pathway_plots <- generate_scrna_pathway_plots(scrna_data_filtered, available_genes, cancer_type, tissue_type)
+    
+    # Add pathway plots to the main plots list
+    if (!is.null(pathway_plots$pathway_percentage_plot)) {
+      plots$pathway_percentage_plot <- pathway_plots$pathway_percentage_plot
+    }
+    if (!is.null(pathway_plots$pathway_heatmap)) {
+      plots$pathway_heatmap <- pathway_plots$pathway_heatmap
+    }
+  }
+  
+  return(plots)
+}
+
+# UPDATED: Generate pathway-aggregated plots for scRNA data with simplified scoring
+generate_scrna_pathway_plots <- function(scrna_data, selected_genes, cancer_type, tissue_type) {
+  plots <- list()
+  
+  # Filter out "Other" cell types for plotting
+  scrna_data_filtered <- scrna_data
+  if ("predicted_cell_type" %in% colnames(scrna_data@meta.data)) {
+    other_cells <- scrna_data$predicted_cell_type == "Other"
+    if (any(other_cells)) {
+      scrna_data_filtered <- subset(scrna_data, predicted_cell_type != "Other")
+      message(paste("Excluded", sum(other_cells), "cells labeled as 'Other' from scRNA pathway plots"))
+    }
+  }
+  
+  # Available genes - MAINTAIN ORDER
+  available_genes <- selected_genes[selected_genes %in% rownames(scrna_data_filtered)]
+  
+  if (length(available_genes) > 0 && "predicted_cell_type" %in% colnames(scrna_data_filtered@meta.data)) {
+    
+    # Map genes to pathways
+    gene_pathway_map <- map_genes_to_pathways(available_genes)
+    
+    # Create pathway-level expression data using simplified scoring
+    pathway_expression_df <- data.frame()
+    
+    # Get unique pathways from the selected genes
+    unique_pathways <- unique(unlist(gene_pathway_map))
+    
+    # Get expression matrix for calculation (PAOX and OAZ1 are already negated)
+    expr_matrix <- as.matrix(scrna_data_filtered@assays$SCT@data)
+    
+    for (pathway in unique_pathways) {
+      # Get genes belonging to this pathway
+      pathway_genes <- names(gene_pathway_map)[sapply(gene_pathway_map, function(x) x == pathway)]
+      pathway_genes_available <- pathway_genes[pathway_genes %in% available_genes]
+      
+      if (length(pathway_genes_available) > 0) {
+        # Use simplified pathway scoring (no special handling needed)
+        pathway_scores <- calculate_pathway_score(expr_matrix, pathway_genes_available, pathway)
+        
+        # Get cell type information
+        cell_types_vec <- scrna_data_filtered$predicted_cell_type
+        
+        # Calculate statistics for each cell type
+        for (cell_type in unique(cell_types_vec)) {
+          cell_indices <- which(cell_types_vec == cell_type)
+          if (length(cell_indices) > 0) {
+            cell_scores <- pathway_scores[cell_indices]
+            
+            # Cells with scores > 0 are considered "expressing"
+            total_expressing_cells <- sum(cell_scores > 0)
+            
+            # Add to data frame
+            pathway_expression_df <- rbind(pathway_expression_df, data.frame(
+              Pathway = pathway,
+              Predicted_Cell_Type = cell_type,
+              Expressing_Cells = total_expressing_cells,
+              Mean_Expression = mean(cell_scores, na.rm = TRUE),
+              stringsAsFactors = FALSE
+            ))
+          }
+        }
+      }
+    }
+    
+    # Create pathway percentage plot
+    if (nrow(pathway_expression_df) > 0) {
+      # Calculate percentage for each pathway-cell type combination
+      pathway_percentage_df <- data.frame()
+      
+      for (pathway in unique(pathway_expression_df$Pathway)) {
+        pathway_data <- pathway_expression_df[pathway_expression_df$Pathway == pathway, ]
+        total_expressing <- sum(pathway_data$Expressing_Cells)
+        
+        for (cell_type in unique(pathway_data$Predicted_Cell_Type)) {
+          cell_expressing <- pathway_data[pathway_data$Predicted_Cell_Type == cell_type, "Expressing_Cells"]
+          if (length(cell_expressing) > 0 && total_expressing > 0) {
+            percentage <- (cell_expressing / total_expressing) * 100
+          } else {
+            percentage <- 0
+          }
+          
+          pathway_percentage_df <- rbind(pathway_percentage_df, data.frame(
+            Pathway = pathway,
+            Predicted_Cell_Type = cell_type,
+            Percentage = percentage,
+            stringsAsFactors = FALSE
+          ))
+        }
+      }
+      
+      # Order pathways consistently
+      pathway_order <- c(names(GENE_CATEGORIES), "Other Genes")
+      available_pathways <- pathway_order[pathway_order %in% unique(pathway_percentage_df$Pathway)]
+      pathway_percentage_df$Pathway <- factor(pathway_percentage_df$Pathway, levels = available_pathways)
+      
+      # Color palette for cell types
+      cell_type_colors <- c(
+        "B-cells" = "red3", "CD4+ T-cells" = "blue3", "CD8+ T-cells" = "green4",
+        "Endothelial cells" = "purple3", "Epithelial cells" = "orange",
+        "Fibroblasts" = "yellow3", "Macrophages" = "peru",
+        "Monocytes" = "pink2", "NK cells" = "grey"
+      )
+      
+      # Create pathway percentage plot
+      pathway_percentage_plot <- ggplot(pathway_percentage_df,
+                                        aes(x = Pathway, y = Percentage, fill = Predicted_Cell_Type)) +
+        geom_bar(stat = "identity", position = "stack", width = 0.6) +
+        labs(title = paste0("Pathway Expression by Cell Type - ", cancer_type, " - ", tissue_type),
+             x = "Metabolic Pathway", y = "Cell Type %") +
+        scale_fill_manual(values = cell_type_colors) +
+        theme_classic() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+              axis.text.y = element_text(size = 12),
+              axis.title.y = element_text(size = 12),
+              legend.position = "right",
+              plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+              text = element_text(size = 12),
+              plot.background = element_rect(fill = "white", colour = NA),
+              panel.background = element_rect(fill = "white", colour = NA))
+      
+      plots$pathway_percentage_plot <- pathway_percentage_plot
+      
+      # Create pathway expression heatmap
+      pathway_heatmap_data <- pathway_expression_df %>%
+        dplyr::select(Pathway, Predicted_Cell_Type, Mean_Expression) %>%
+        tidyr::spread(key = Predicted_Cell_Type, value = Mean_Expression, fill = 0)
+      
+      # Convert to matrix for heatmap
+      pathway_matrix <- as.matrix(pathway_heatmap_data[,-1])
+      rownames(pathway_matrix) <- pathway_heatmap_data$Pathway
+      
+      # Normalize by row (pathway) for better visualization
+      pathway_matrix_norm <- t(apply(pathway_matrix, 1, function(x) (x - min(x)) / (max(x) - min(x) + 1e-6)))
+      
+      # Convert back to long format for ggplot
+      pathway_heatmap_long <- reshape2::melt(pathway_matrix_norm)
+      colnames(pathway_heatmap_long) <- c("Pathway", "Cell_Type", "Normalized_Expression")
+      
+      # Order pathways
+      pathway_heatmap_long$Pathway <- factor(pathway_heatmap_long$Pathway, levels = available_pathways)
+      
+      # Create heatmap
+      pathway_heatmap <- ggplot(pathway_heatmap_long, aes(x = Cell_Type, y = Pathway, fill = Normalized_Expression)) +
+        geom_tile(color = "white") +
+        scale_fill_gradientn(colors = brewer.pal(9, "YlOrRd"), name = "Normalized\nExpression") +
+        labs(title = paste0("Pathway Expression Heatmap - ", cancer_type, " - ", tissue_type),
+             x = "Cell Type", y = "Metabolic Pathway") +
+        theme_classic() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+              axis.text.y = element_text(size = 10),
+              plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+              text = element_text(size = 12),
+              plot.background = element_rect(fill = "white", colour = NA),
+              panel.background = element_rect(fill = "white", colour = NA))
+      
+      plots$pathway_heatmap <- pathway_heatmap
+      
+    } else {
+      plots$pathway_percentage_plot <- ggplot() + 
+        ggtitle("No pathway data available") + 
+        theme_void()
+      plots$pathway_heatmap <- ggplot() + 
+        ggtitle("No pathway data available") + 
+        theme_void()
+    }
+  } else {
+    plots$pathway_percentage_plot <- ggplot() + 
+      ggtitle("Cell type predictions not available for pathway analysis") + 
+      theme_void()
+    plots$pathway_heatmap <- ggplot() + 
+      ggtitle("Cell type predictions not available for pathway analysis") + 
+      theme_void()
+  }
+  
+  return(plots)
+}
+
+# Generate comparison plots
+generate_comparison_plot <- function(st_data, scrna_data, gene, st_cancer, scrna_cancer) {
+  tryCatch({
+    st_expr <- NULL
+    scrna_expr <- NULL
+    
+    if (!is.null(st_data) && gene %in% rownames(st_data)) {
+      st_expr_values <- FetchData(st_data, vars = gene)[[gene]]
+      st_expr <- data.frame(
+        Expression = st_expr_values,
+        DataType = "Spatial Transcriptomics",
+        Cancer = st_cancer,
+        stringsAsFactors = FALSE
+      )
+    }
+    
+    if (!is.null(scrna_data) && gene %in% rownames(scrna_data)) {
+      scrna_expr_values <- FetchData(scrna_data, vars = gene)[[gene]]
+      scrna_expr <- data.frame(
+        Expression = scrna_expr_values,
+        DataType = "Single Cell RNA",
+        Cancer = scrna_cancer,
+        stringsAsFactors = FALSE
+      )
+    }
+    
+    if (!is.null(st_expr) && !is.null(scrna_expr)) {
+      combined_data <- rbind(st_expr, scrna_expr)
+      
+      comp_plot <- ggplot(combined_data, aes(x = DataType, y = Expression, fill = Cancer)) +
+        geom_violin(alpha = 0.7, trim = FALSE) +
+        geom_boxplot(width = 0.2, alpha = 0.8, position = position_dodge(0.9)) +
+        theme_classic() +
+        labs(title = paste("Expression Comparison:", gene),
+             x = "Data Type", y = "Expression Level") +
+        theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+              legend.position = "top",
+              text = element_text(size = 12),
+              plot.background = element_rect(fill = "white", colour = NA),
+              panel.background = element_rect(fill = "white", colour = NA))
+      
+      return(comp_plot)
+    } else {
+      return(ggplot() + 
+               ggtitle(paste("Gene", gene, "not found in one or both datasets")) +
+               theme_void())
+    }
+  }, error = function(e) {
+    return(ggplot() + 
+             ggtitle(paste("Error creating comparison plot:", e$message)) +
+             theme_void())
+  })
+}
+
+# Generate tissue comparison violin plot with preserved gene order
+generate_tissue_comparison_plot <- function(spatial_data_list, selected_genes) {
+  tryCatch({
+    # Create combined data frame with mean expression per sample
+    combined_data <- data.frame()
+    
+    for (sample_name in names(spatial_data_list)) {
+      spatial_data <- spatial_data_list[[sample_name]]
+      sample_info <- get_sample_info(sample_name)
+      
+      if (!is.null(spatial_data) && !is.null(sample_info)) {
+        # Get expression data for selected genes - MAINTAIN ORDER
+        available_genes <- selected_genes[selected_genes %in% rownames(spatial_data)]
+        
+        if (length(available_genes) > 0) {
+          gene_expr <- FetchData(spatial_data, vars = available_genes)
+          
+          # Calculate mean expression for each gene in this sample
+          gene_means <- colMeans(gene_expr, na.rm = TRUE)
+          
+          # Create data frame for this sample - MAINTAIN ORDER
+          sample_df <- data.frame(
+            Gene = names(gene_means),
+            mean_expression = as.numeric(gene_means),
+            sample_id = sample_name,
+            tissue_category = sample_info$tissue_category,
+            cancer_type = sample_info$type_of_cancer,
+            individual = sample_info$individual,
+            stringsAsFactors = FALSE
+          )
+          
+          combined_data <- rbind(combined_data, sample_df)
+        }
+      }
+    }
+    
+    # Create violin plot if we have data
+    if (nrow(combined_data) > 0) {
+      # Filter for tumor and adjacent samples only
+      tissue_data <- combined_data[combined_data$tissue_category %in% c("Tumor", "Adjacent"), ]
+      
+      # Remove SMOX if present (as in your example code)
+      tissue_data <- tissue_data[tissue_data$Gene != "SMOX", ]
+      
+      if (nrow(tissue_data) > 0) {
+        # Calculate p-values using Wilcoxon test
+        p_values <- data.frame(Gene = character(), p.value = numeric(), stringsAsFactors = FALSE)
+        
+        for (gene in unique(tissue_data$Gene)) {
+          tumor_values <- tissue_data[tissue_data$Gene == gene & tissue_data$tissue_category == "Tumor", "mean_expression"]
+          adjacent_values <- tissue_data[tissue_data$Gene == gene & tissue_data$tissue_category == "Adjacent", "mean_expression"]
+          
+          if (length(tumor_values) > 0 && length(adjacent_values) > 0) {
+            p_value <- wilcox.test(tumor_values, adjacent_values)$p.value
+            p_values <- rbind(p_values, data.frame(Gene = gene, p.value = p_value))
+          }
+        }
+        
+        # PRESERVE GENE ORDER - Set Gene as factor with levels in selected_genes order
+        available_selected_genes <- selected_genes[selected_genes %in% unique(tissue_data$Gene)]
+        tissue_data$Gene <- factor(tissue_data$Gene, levels = available_selected_genes)
+        p_values$Gene <- factor(p_values$Gene, levels = available_selected_genes)
+        
+        # Determine y position for p-values
+        max_expr <- max(tissue_data$mean_expression, na.rm = TRUE)
+        y_position <- max_expr * 1.1
+        
+        # Create violin plot
+        violin_plot <- ggplot(tissue_data, aes(x = Gene, y = mean_expression, fill = tissue_category)) +
+          geom_violin(trim = FALSE, alpha = 0.7, adjust = 1, scale = "width") +
+          geom_boxplot(width = 0.2, alpha = 0.7, position = position_dodge(0.9)) +
+          labs(x = "", y = "Mean Expression", fill = "Tissue Type") +
+          theme_classic(base_size = 14) +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                legend.position = "top",
+                strip.text = element_text(size = 12, face = "bold"),
+                text = element_text(size = 12),
+                plot.title = element_text(size = 14, face = "bold"),
+                plot.background = element_rect(fill = "white", colour = NA),
+                panel.background = element_rect(fill = "white", colour = NA)) +
+          scale_fill_manual(values = c("Tumor" = "#E69F00", "Adjacent" = "#009E73"))
+        
+        # Add p-values if available
+        if (nrow(p_values) > 0) {
+          # Add p-values as text labels
+          violin_plot <- violin_plot +
+            geom_text(data = p_values,
+                      aes(x = Gene, y = y_position, 
+                          label = sprintf("p = %.1E", p.value)),
+                      angle = 90,
+                      size = 3,
+                      inherit.aes = FALSE)
+        }
+        
+        # Add facets for cancer types if multiple types present
+        if (length(unique(tissue_data$cancer_type)) > 1) {
+          violin_plot <- violin_plot +
+            facet_wrap(~ cancer_type, scales = "free", ncol = 2)
+        }
+        
+        return(violin_plot)
+      }
+    }
+    
+    return(ggplot() + 
+             ggtitle("No data available for tissue comparison") +
+             theme_void())
+    
+  }, error = function(e) {
+    return(ggplot() + 
+             ggtitle(paste("Error creating tissue comparison plot:", e$message)) +
+             theme_void())
+  })
+}
+
+# UPDATED: Generate pathway aggregation comparison plot with simplified scoring
+generate_pathway_comparison_plot <- function(spatial_data_list, selected_genes) {
+  tryCatch({
+    # Map genes to pathways
+    gene_pathway_map <- map_genes_to_pathways(selected_genes)
+    
+    # Create combined data frame with pathway expression per sample
+    combined_data <- data.frame()
+    
+    for (sample_name in names(spatial_data_list)) {
+      spatial_data <- spatial_data_list[[sample_name]]
+      sample_info <- get_sample_info(sample_name)
+      
+      if (!is.null(spatial_data) && !is.null(sample_info)) {
+        # Get expression data for selected genes
+        available_genes <- selected_genes[selected_genes %in% rownames(spatial_data)]
+        
+        if (length(available_genes) > 0) {
+          # Get expression matrix (PAOX and OAZ1 are already negated)
+          expr_matrix <- as.matrix(spatial_data@assays$SCT@data)
+          
+          # Calculate pathway-level expression using simplified scoring
+          pathway_scores <- list()
+          
+          for (pathway in unique(unlist(gene_pathway_map))) {
+            pathway_genes <- names(gene_pathway_map)[sapply(gene_pathway_map, function(x) x == pathway)]
+            pathway_genes_available <- pathway_genes[pathway_genes %in% available_genes]
+            
+            if (length(pathway_genes_available) > 0) {
+              # Use simplified pathway scoring (no special handling needed)
+              scores <- calculate_pathway_score(expr_matrix, pathway_genes_available, pathway)
+              pathway_scores[[pathway]] <- mean(scores, na.rm = TRUE)
+            }
+          }
+          
+          # Create data frame for this sample
+          if (length(pathway_scores) > 0) {
+            sample_df <- data.frame(
+              Pathway = names(pathway_scores),
+              mean_expression = as.numeric(pathway_scores),
+              sample_id = sample_name,
+              tissue_category = sample_info$tissue_category,
+              cancer_type = sample_info$type_of_cancer,
+              individual = sample_info$individual,
+              stringsAsFactors = FALSE
+            )
+            
+            combined_data <- rbind(combined_data, sample_df)
+          }
+        }
+      }
+    }
+    
+    # Create pathway comparison plot if we have data
+    if (nrow(combined_data) > 0) {
+      # Filter for tumor and adjacent samples only
+      tissue_data <- combined_data[combined_data$tissue_category %in% c("Tumor", "Adjacent"), ]
+      
+      if (nrow(tissue_data) > 0) {
+        # Calculate p-values using Wilcoxon test for pathways
+        p_values <- data.frame(Pathway = character(), p.value = numeric(), stringsAsFactors = FALSE)
+        
+        for (pathway in unique(tissue_data$Pathway)) {
+          tumor_values <- tissue_data[tissue_data$Pathway == pathway & tissue_data$tissue_category == "Tumor", "mean_expression"]
+          adjacent_values <- tissue_data[tissue_data$Pathway == pathway & tissue_data$tissue_category == "Adjacent", "mean_expression"]
+          
+          if (length(tumor_values) > 0 && length(adjacent_values) > 0) {
+            p_value <- wilcox.test(tumor_values, adjacent_values)$p.value
+            p_values <- rbind(p_values, data.frame(Pathway = pathway, p.value = p_value))
+          }
+        }
+        
+        # Order pathways consistently
+        pathway_order <- c(names(GENE_CATEGORIES), "Other Genes")
+        available_pathways <- pathway_order[pathway_order %in% unique(tissue_data$Pathway)]
+        tissue_data$Pathway <- factor(tissue_data$Pathway, levels = available_pathways)
+        p_values$Pathway <- factor(p_values$Pathway, levels = available_pathways)
+        
+        # Determine y position for p-values
+        max_expr <- max(tissue_data$mean_expression, na.rm = TRUE)
+        y_position <- max_expr * 1.05
+        
+        # Create pathway violin plot
+        pathway_plot <- ggplot(tissue_data, aes(x = Pathway, y = mean_expression, fill = tissue_category)) +
+          geom_violin(trim = FALSE, alpha = 0.7, adjust = 1, scale = "width") +
+          geom_boxplot(width = 0.2, alpha = 0.7, position = position_dodge(0.9)) +
+          labs(x = "Metabolic Pathway", y = "Mean Pathway Expression", fill = "Tissue Type",
+               title = "Pathway-Level Expression Comparison: Tumor vs Adjacent") +
+          theme_classic(base_size = 14) +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                legend.position = "top",
+                strip.text = element_text(size = 12, face = "bold"),
+                text = element_text(size = 12),
+                plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+                plot.background = element_rect(fill = "white", colour = NA),
+                panel.background = element_rect(fill = "white", colour = NA)) +
+          scale_fill_manual(values = c("Tumor" = "#E69F00", "Adjacent" = "#009E73"))
+        
+        # Add p-values if available
+        if (nrow(p_values) > 0) {
+          # Add p-values as text labels
+          pathway_plot <- pathway_plot +
+            geom_text(data = p_values,
+                      aes(x = Pathway, y = y_position, 
+                          label = sprintf("p = %.1E", p.value)),
+                      angle = 90,
+                      size = 3,
+                      inherit.aes = FALSE)
+        }
+        
+        # Add facets for cancer types if multiple types present
+        if (length(unique(tissue_data$cancer_type)) > 1) {
+          pathway_plot <- pathway_plot +
+            facet_wrap(~ cancer_type, scales = "free", ncol = 2)
+        }
+        
+        return(pathway_plot)
+      }
+    }
+    
+    return(ggplot() + 
+             ggtitle("No pathway data available for comparison") +
+             theme_void())
+    
+  }, error = function(e) {
+    return(ggplot() + 
+             ggtitle(paste("Error creating pathway comparison plot:", e$message)) +
+             theme_void())
+  })
+}
+
+# ===== UI =====
+ui <- dashboardPage(
+  dashboardHeader(
+    title = "Spatial Transcriptomics & scRNA Gene Analysis for Lung Cancer",
+    tags$li(class = "dropdown",
+            tags$style(HTML("
+              .main-header .navbar-custom-menu > .navbar-nav > li > .dropdown-menu {
+                color: #333;
+              }
+              .author-info {
+                font-size: 11px;
+                color: white;
+                margin-left: 10px;
+                padding: 5px;
+              }
+            ")),
+            tags$div(class = "author-info",
+                     HTML("Written by: <b>Hamid Khoshfekr Rudsari</b><br/>
+                          MD Anderson Cancer Center | July 2025"))
+    )
+  ),
+  
+  dashboardSidebar(
+    sidebarMenu(
+      menuItem("Spatial Transcriptomics", tabName = "spatial", icon = icon("map")),
+      menuItem("Single Cell RNA", tabName = "scrna", icon = icon("dna")),
+      menuItem("Comparative Analysis", tabName = "compare", icon = icon("chart-line")),
+      menuItem("Tissue Comparison", tabName = "tissue_compare", icon = icon("microscope")),
+      menuItem("Gene Explorer", tabName = "genes", icon = icon("search")),
+      menuItem("Data Info", tabName = "info", icon = icon("info-circle")),
+      menuItem("About", tabName = "about", icon = icon("user"))
+    )
+  ),
+  
+  dashboardBody(
+    
+    fluidRow(
+      box(
+        title = NULL, status = "primary", solidHeader = FALSE, width = 12,
+        style = "background: linear-gradient(45deg, #3c8dbc, #367fa9); color: white; text-align: center; margin-bottom: 20px;",
+        h1("Spatial Transcriptomics & Single Cell RNA Gene Analysis", 
+           style = "margin: 15px 0; font-weight: bold; font-size: 28px;"),
+        h3("Enhanced Lung Cancer Research Platform with Pathway Analysis", 
+           style = "margin: 10px 0; font-weight: 300; font-size: 18px; opacity: 0.9;")
+      )
+    ),
+    
+    tags$head(
+      tags$style(HTML("
+        .content-wrapper, .right-side {
+          background-color: #f4f4f4;
+        }
+        .gene-search-box {
+          max-height: 200px;
+          overflow-y: auto;
+          border: 1px solid #ddd;
+          padding: 5px;
+          margin: 5px 0;
+        }
+        /* Ensure plots are responsive */
+        .shiny-plot-output {
+          max-width: 100%;
+          height: auto !important;
+        }
+        /* High-quality plot containers */
+        .shiny-plot-output img {
+          max-width: 100%;
+          height: auto;
+          image-rendering: -webkit-optimize-contrast;
+          image-rendering: crisp-edges;
+        }
+      "))
+    ),
+    
+    tabItems(
+      # UPDATED Spatial Transcriptomics Tab with simplified polyamine information
+      tabItem(tabName = "spatial",
+              fluidRow(
+                box(
+                  title = "Analysis Parameters", status = "primary", solidHeader = TRUE, width = 4,
+                  selectInput("st_cancer_type", "Cancer Type:",
+                              choices = c("LUAD", "SCC", "non-SCLC", "Healthy"), selected = "LUAD"),
+                  
+                  selectInput("st_sample", "Sample:",
+                              choices = ALL_ST_SAMPLES, selected = "P10_T1"),
+                  
+                  # Enhanced display mode toggle with help text
+                  radioButtons("st_display_mode", "Display Mode:",
+                               choices = list("Clusters" = "clusters", "Cell Types" = "cell_types"),
+                               selected = "clusters"),
+                  helpText("Cell Types: Shows predicted cell types from SingleR annotation. Clusters: Shows Seurat clustering results."),
+                  
+                  br(),
+                  actionButton("load_st_data", "Load Data", class = "btn-primary", width = "100%"),
+                  
+                  hr(),
+                  h4("Gene Selection:"),
+                  selectInput("st_gene_category", "Quick Select by Category:",
+                              choices = c("Custom Selection" = "custom", names(GENE_CATEGORIES)), 
+                              selected = "custom"),
+                  
+                  conditionalPanel(
+                    condition = "input.st_gene_category == 'Polyamine Metabolism'",
+                    div(style = "background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; margin: 10px 0; border-radius: 5px;",
+                        h5("Simplified Polyamine Metabolism Scoring:", style = "color: #856404; margin-bottom: 5px;"),
+                        p("PAOX and OAZ1 expression values are negated during data loading", 
+                          style = "color: #856404; font-size: 12px; margin: 0;"),
+                        p("All pathway genes then use standard averaging for scoring.", 
+                          style = "color: #856404; font-size: 11px; margin: 0;")
+                    )
+                  ),
+                  
+                  textInput("st_custom_genes", "Add Custom Genes (comma-separated):",
+                            placeholder = "e.g., TP53, MYC, EGFR"),
+                  
+                  actionButton("st_add_genes", "Add Custom Genes", class = "btn-info", width = "100%"),
+                  
+                  br(), br(),
+                  
+                  # Gene selection with Select All functionality
+                  fluidRow(
+                    column(4, actionButton("st_select_all", "Select All Genes", class = "btn-info btn-sm", width = "100%")),
+                    column(4, actionButton("st_deselect_all", "Deselect All", class = "btn-warning btn-sm", width = "100%")),
+                    column(4, actionButton("st_select_polyamine", "Select Polyamine Only", class = "btn-success btn-sm", width = "100%"))
+                  ),
+                  br(),
+                  
+                  checkboxGroupInput("st_genes", "Select Genes for Analysis:",
+                                     choices = DEFAULT_GENES[1:20], selected = DEFAULT_GENES[1:5]),
+                  
+                  br(),
+                  actionButton("generate_st_plots", "Generate Plots", class = "btn-success", width = "100%")
+                ),
+                
+                box(
+                  title = "Data Status & Sample Information", status = "info", solidHeader = TRUE, width = 8,
+                  verbatimTextOutput("st_data_status"),
+                  br(),
+                  h4("Sample Information:"),
+                  dataTableOutput("st_sample_info_table"),
+                  br(),
+                  h4("Gene Availability in Current Dataset:"),
+                  dataTableOutput("st_gene_validation")
+                )
+              ),
+              
+              fluidRow(
+                box(
+                  title = "Cluster/Cell Type Plot", status = "success", solidHeader = TRUE, width = 6,
+                  withSpinner(plotOutput("st_cluster_plot"))
+                ),
+                
+                box(
+                  title = "Gene Expression Circular Plot", status = "success", solidHeader = TRUE, width = 6,
+                  withSpinner(plotOutput("st_circular_plot"))
+                )
+              ),
+              
+              fluidRow(
+                box(
+                  title = "Spatial Gene Expression", status = "warning", solidHeader = TRUE, width = 12,
+                  withSpinner(plotOutput("st_gene_plot"))
+                )
+              ),
+              
+              fluidRow(
+                box(
+                  title = "Gene Expression by Cell Type", status = "warning", solidHeader = TRUE, width = 12,
+                  helpText("This plot shows the percentage distribution of each gene's expression across different predicted cell types in the spatial data."),
+                  withSpinner(plotOutput("st_percentage_plot"))
+                )
+              ),
+              
+              # SIMPLIFIED ROW: Pathway plots with simplified scoring information
+              fluidRow(
+                box(
+                  title = "Pathway Expression by Cell Type", status = "warning", solidHeader = TRUE, width = 6,
+                  helpText("Pathway-level analysis with simplified scoring. PAOX and OAZ1 values are negated during data loading, then standard averaging is used for all pathways."),
+                  withSpinner(plotOutput("st_pathway_percentage_plot"))
+                ),
+                
+                box(
+                  title = "Pathway Expression Heatmap", status = "warning", solidHeader = TRUE, width = 6,
+                  helpText("This heatmap shows the normalized expression levels of metabolic pathways across different cell types using simplified scoring methods."),
+                  withSpinner(plotOutput("st_pathway_heatmap"))
+                )
+              )
+      ),
+      
+      # SIMPLIFIED Single Cell RNA Tab
+      tabItem(tabName = "scrna",
+              fluidRow(
+                box(
+                  title = "Analysis Parameters", status = "primary", solidHeader = TRUE, width = 4,
+                  selectInput("scrna_cancer_type", "Cancer Type:",
+                              choices = c("LUAD", "SCLC"), selected = "LUAD"),
+                  
+                  conditionalPanel(
+                    condition = "input.scrna_cancer_type == 'LUAD'",
+                    selectInput("scrna_luad_sample", "LUAD Sample:",
+                                choices = LUAD_SCRNA_SAMPLES, selected = "P32")
+                  ),
+                  
+                  conditionalPanel(
+                    condition = "input.scrna_cancer_type == 'SCLC'",
+                    selectInput("scrna_sclc_sample", "SCLC Sample:",
+                                choices = SCLC_SCRNA_SAMPLES, selected = "Mason_1598")
+                  ),
+                  
+                  selectInput("scrna_tissue_type", "Tissue Type:",
+                              choices = c("Tumor", "Adjacent"), selected = "Tumor"),
+                  
+                  br(),
+                  actionButton("load_scrna_data", "Load Data", class = "btn-primary", width = "100%"),
+                  
+                  hr(),
+                  h4("Gene Selection:"),
+                  selectInput("scrna_gene_category", "Quick Select by Category:",
+                              choices = c("Custom Selection" = "custom", names(GENE_CATEGORIES)), 
+                              selected = "custom"),
+                  
+                  conditionalPanel(
+                    condition = "input.scrna_gene_category == 'Polyamine Metabolism'",
+                    div(style = "background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; margin: 10px 0; border-radius: 5px;",
+                        h5("Simplified Polyamine Metabolism Scoring:", style = "color: #856404; margin-bottom: 5px;"),
+                        p("PAOX and OAZ1 expression values are negated during data loading", 
+                          style = "color: #856404; font-size: 12px; margin: 0;"),
+                        p("All pathway genes then use standard averaging for scoring.", 
+                          style = "color: #856404; font-size: 11px; margin: 0;")
+                    )
+                  ),
+                  
+                  textInput("scrna_custom_genes", "Add Custom Genes (comma-separated):",
+                            placeholder = "e.g., TP53, MYC, EGFR"),
+                  
+                  actionButton("scrna_add_genes", "Add Custom Genes", class = "btn-info", width = "100%"),
+                  
+                  br(), br(),
+                  
+                  # Gene selection with Select All functionality
+                  fluidRow(
+                    column(4, actionButton("scrna_select_all", "Select All Genes", class = "btn-info btn-sm", width = "100%")),
+                    column(4, actionButton("scrna_deselect_all", "Deselect All", class = "btn-warning btn-sm", width = "100%")),
+                    column(4, actionButton("scrna_select_polyamine", "Select Polyamine Only", class = "btn-success btn-sm", width = "100%"))
+                  ),
+                  br(),
+                  
+                  checkboxGroupInput("scrna_genes", "Select Genes for Analysis:",
+                                     choices = DEFAULT_GENES[1:20], selected = DEFAULT_GENES[1:5]),
+                  
+                  br(),
+                  actionButton("generate_scrna_plots", "Generate Plots", class = "btn-success", width = "100%")
+                ),
+                
+                box(
+                  title = "Data Status & Gene Validation", status = "info", solidHeader = TRUE, width = 8,
+                  verbatimTextOutput("scrna_data_status"),
+                  br(),
+                  h4("Gene Availability in Current Dataset:"),
+                  dataTableOutput("scrna_gene_validation"),
+                  br(),
+                  h4("Sample Information:"),
+                  dataTableOutput("scrna_sample_info")
+                )
+              ),
+              
+              fluidRow(
+                box(
+                  title = "UMAP - Cell Types", status = "success", solidHeader = TRUE, width = 6,
+                  withSpinner(plotOutput("scrna_umap_plot"))
+                ),
+                
+                box(
+                  title = "Cell Type Proportions", status = "success", solidHeader = TRUE, width = 6,
+                  withSpinner(plotOutput("scrna_proportion_plot"))
+                )
+              ),
+              
+              fluidRow(
+                box(
+                  title = "Gene Expression Circular Plot", status = "success", solidHeader = TRUE, width = 12,
+                  withSpinner(plotOutput("scrna_circular_plot"))
+                )
+              ),
+              
+              fluidRow(
+                box(
+                  title = "Gene Feature Plots", status = "warning", solidHeader = TRUE, width = 6,
+                  withSpinner(plotOutput("scrna_feature_plot"))
+                ),
+                
+                box(
+                  title = "Gene Expression by Cell Type", status = "warning", solidHeader = TRUE, width = 6,
+                  withSpinner(plotOutput("scrna_percentage_plot"))
+                )
+              ),
+              
+              fluidRow(
+                box(
+                  title = "Gene Expression Distribution", status = "info", solidHeader = TRUE, width = 12,
+                  withSpinner(plotOutput("scrna_violin_plot"))
+                )
+              ),
+              
+              fluidRow(
+                box(
+                  title = "Pathway Expression by Cell Type", status = "warning", solidHeader = TRUE, width = 6,
+                  helpText("Simplified pathway scoring with negated PAOX and OAZ1 values during data loading."),
+                  withSpinner(plotOutput("scrna_pathway_percentage_plot"))
+                ),
+                
+                box(
+                  title = "Pathway Expression Heatmap", status = "warning", solidHeader = TRUE, width = 6,
+                  helpText("Normalized pathway expression heatmap using simplified scoring methods."),
+                  withSpinner(plotOutput("scrna_pathway_heatmap"))
+                )
+              )
+      ),
+      
+      # Comparative Analysis Tab
+      tabItem(tabName = "compare",
+              fluidRow(
+                box(
+                  title = "Comparison Parameters", status = "primary", solidHeader = TRUE, width = 4,
+                  h4("Spatial Transcriptomics"),
+                  selectInput("comp_st_cancer", "ST Cancer Type:", 
+                              choices = c("LUAD", "SCC"), selected = "LUAD"),
+                  selectInput("comp_st_sample", "ST Sample:", 
+                              choices = ALL_ST_SAMPLES, selected = "P10_T1"),
+                  
+                  hr(),
+                  h4("Single Cell RNA"),
+                  selectInput("comp_scrna_cancer", "scRNA Cancer Type:", 
+                              choices = c("LUAD", "SCLC"), selected = "LUAD"),
+                  conditionalPanel(
+                    condition = "input.comp_scrna_cancer == 'LUAD'",
+                    selectInput("comp_scrna_luad", "scRNA Sample:", 
+                                choices = LUAD_SCRNA_SAMPLES, selected = "P32")
+                  ),
+                  conditionalPanel(
+                    condition = "input.comp_scrna_cancer == 'SCLC'",
+                    selectInput("comp_scrna_sclc", "scRNA Sample:", 
+                                choices = SCLC_SCRNA_SAMPLES, selected = "Mason_1598")
+                  ),
+                  
+                  hr(),
+                  selectInput("comp_gene", "Select Gene:", 
+                              choices = DEFAULT_GENES, selected = "ODC1"),
+                  
+                  br(),
+                  actionButton("generate_comparison", "Generate Comparison", 
+                               class = "btn-success", width = "100%")
+                ),
+                
+                box(
+                  title = "Comparison Results", status = "info", solidHeader = TRUE, width = 8,
+                  withSpinner(plotOutput("comparison_plot"))
+                )
+              )
+      ),
+      
+      # SIMPLIFIED Tissue Comparison Tab with simplified pathway information
+      tabItem(tabName = "tissue_compare",
+              fluidRow(
+                box(
+                  title = "Tissue Comparison Parameters", status = "primary", solidHeader = TRUE, width = 4,
+                  h4("Sample Selection for Comparison:"),
+                  checkboxGroupInput("tissue_samples", "Select Samples:",
+                                     choices = ALL_ST_SAMPLES, 
+                                     selected = c("P10_T1", "P10_B1", "P11_T1", "P11_B1")),
+                  
+                  hr(),
+                  h4("Gene Selection:"),
+                  selectInput("tissue_gene_category", "Quick Select by Category:",
+                              choices = c("Custom Selection" = "custom", names(GENE_CATEGORIES)), 
+                              selected = "custom"),
+                  
+                  conditionalPanel(
+                    condition = "input.tissue_gene_category == 'Polyamine Metabolism'",
+                    div(style = "background-color: #d1ecf1; border: 1px solid #bee5eb; padding: 8px; margin: 8px 0; border-radius: 4px;",
+                        h6("Simplified Pathway Scoring Active", style = "color: #0c5460; margin: 0;"),
+                        p("PAOX and OAZ1 negated during data loading, then standard averaging", 
+                          style = "color: #0c5460; font-size: 11px; margin: 2px 0;")
+                    )
+                  ),
+                  
+                  textInput("tissue_custom_genes", "Add Custom Genes (comma-separated):",
+                            placeholder = "e.g., TP53, MYC, EGFR"),
+                  
+                  actionButton("tissue_add_genes", "Add Custom Genes", class = "btn-info", width = "100%"),
+                  
+                  br(), br(),
+                  
+                  # Gene selection with Select All functionality
+                  fluidRow(
+                    column(4, actionButton("tissue_select_all", "Select All Genes", class = "btn-info btn-sm", width = "100%")),
+                    column(4, actionButton("tissue_deselect_all", "Deselect All", class = "btn-warning btn-sm", width = "100%")),
+                    column(4, actionButton("tissue_select_polyamine", "Select Polyamine Only", class = "btn-success btn-sm", width = "100%"))
+                  ),
+                  br(),
+                  
+                  checkboxGroupInput("tissue_genes", "Select Genes for Analysis:",
+                                     choices = DEFAULT_GENES[1:15], selected = DEFAULT_GENES[1:3]),
+                  
+                  br(),
+                  actionButton("load_tissue_data", "Load Selected Samples", class = "btn-primary", width = "100%"),
+                  br(), br(),
+                  actionButton("generate_tissue_comparison", "Generate Gene-Level Comparison", 
+                               class = "btn-success", width = "100%"),
+                  br(), br(),
+                  actionButton("generate_pathway_comparison", "Generate Simplified Pathway Comparison", 
+                               class = "btn-warning", width = "100%")
+                ),
+                
+                box(
+                  title = "Tissue Comparison Status", status = "info", solidHeader = TRUE, width = 8,
+                  verbatimTextOutput("tissue_data_status"),
+                  br(),
+                  h4("Selected Samples Information:"),
+                  dataTableOutput("tissue_samples_info")
+                )
+              ),
+              
+              fluidRow(
+                box(
+                  title = "Gene-Level: Tumor vs Adjacent Tissue Comparison", status = "success", solidHeader = TRUE, width = 12,
+                  withSpinner(plotOutput("tissue_comparison_plot"))
+                )
+              ),
+              
+              # SIMPLIFIED ROW: Pathway-level comparison with simplified scoring
+              fluidRow(
+                box(
+                  title = "Simplified Pathway-Level: Tumor vs Adjacent Tissue Comparison", status = "warning", solidHeader = TRUE, width = 12,
+                  helpText("This plot shows pathway-level expression using simplified scoring methods. PAOX and OAZ1 values are negated during data loading, then standard averaging is used for all pathways."),
+                  withSpinner(plotOutput("pathway_comparison_plot"))
+                )
+              )
+      ),
+      
+      # SIMPLIFIED Gene Explorer Tab
+      tabItem(tabName = "genes",
+              fluidRow(
+                box(
+                  title = "Gene Search & Discovery", status = "primary", solidHeader = TRUE, width = 6,
+                  h4("Search Available Genes:"),
+                  textInput("gene_search", "Search for genes:", 
+                            placeholder = "Start typing gene name..."),
+                  br(),
+                  h5("Search Results:"),
+                  div(class = "gene-search-box",
+                      verbatimTextOutput("gene_search_results")),
+                  br(),
+                  actionButton("add_searched_gene", "Add Selected Gene", class = "btn-success"),
+                  
+                  hr(),
+                  h4("Current Gene List:"),
+                  verbatimTextOutput("current_gene_list"),
+                  
+                  br(),
+                  actionButton("clear_genes", "Clear All Genes", class = "btn-warning")
+                ),
+                
+                box(
+                  title = "Simplified Pathway Information", status = "info", solidHeader = TRUE, width = 6,
+                  h4("Pathway Scoring Methods:"),
+                  div(style = "background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0;",
+                      h5(strong("Polyamine Metabolism - Simplified Scoring:")),
+                      p("Method: PAOX and OAZ1 values are negated during data loading"),
+                      p("Then: Standard averaging is used for all pathway genes", style = "font-style: italic;"),
+                      hr(),
+                      h5(strong("Other Pathways - Standard Averaging:")),
+                      p("Method: Simple mean of all genes in pathway")
+                  ),
+                  
+                  br(),
+                  h4("Available Genes by Dataset:"),
+                  conditionalPanel(
+                    condition = "output.has_spatial_data",
+                    h5("Spatial Transcriptomics Dataset:"),
+                    verbatimTextOutput("spatial_gene_count")
+                  ),
+                  conditionalPanel(
+                    condition = "output.has_scrna_data",
+                    h5("Single Cell RNA Dataset:"),
+                    verbatimTextOutput("scrna_gene_count")
+                  )
+                )
+              ),
+              
+              fluidRow(
+                box(
+                  title = "Complete Gene Categories", status = "success", solidHeader = TRUE, width = 12,
+                  h4("All Pathway Genes:"),
+                  verbatimTextOutput("gene_category_list"),
+                  br(),
+                  h4("Gene Validation Across Datasets:"),
+                  dataTableOutput("gene_availability_table")
+                )
+              )
+      ),
+      
+      # SIMPLIFIED Data Info Tab
+      tabItem(tabName = "info",
+              
+              fluidRow(
+                box(
+                  title = "Public Data Sources", status = "success", solidHeader = TRUE, width = 12,
+                  h4("Original Data Sources:"),
+                  tags$div(
+                    style = "background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0;",
+                    h5(strong("Single Cell RNA Sequencing Data:")),
+                    tags$p(
+                      strong("ArrayExpress ID:"), "E-MTAB-13526",
+                      tags$br(),
+                      strong("URL:"), 
+                      tags$a(href = "https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-13526#processed-data", 
+                             target = "_blank", 
+                             "https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-13526#processed-data",
+                             style = "color: #337ab7; text-decoration: underline;")
+                    ),
+                    tags$br(),
+                    h5(strong("Spatial Transcriptomics Data:")),
+                    tags$p(
+                      strong("ArrayExpress ID:"), "E-MTAB-13530",
+                      tags$br(),
+                      strong("URL:"), 
+                      tags$a(href = "https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-13530", 
+                             target = "_blank", 
+                             "https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-13530",
+                             style = "color: #337ab7; text-decoration: underline;")
+                    )
+                  ),
+                  h5("Data Citation:"),
+                  tags$p(
+                    style = "font-style: italic; background-color: #e8f4fd; padding: 10px; border-radius: 3px;",
+                    "Please cite the original data sources when using this application for research purposes. ",
+                    "All data used in this application are publicly available through the European Bioinformatics Institute (EBI) ArrayExpress database."
+                  )
+                )
+              ),
+              
+              fluidRow(
+                box(
+                  title = "Complete Pathway Gene Lists", status = "primary", solidHeader = TRUE, width = 12,
+                  h4("All Genes by Pathway Category:"),
+                  verbatimTextOutput("complete_gene_category_info")
+                )
+              ),
+              
+              fluidRow(
+                box(
+                  title = "Spatial Transcriptomics Dataset Information", status = "primary", solidHeader = TRUE, width = 12,
+                  h4("Complete Sample Information from ArrayExpress"),
+                  dataTableOutput("all_st_samples_info")
+                )
+              ),
+              
+              fluidRow(
+                box(
+                  title = "Single Cell RNA Samples", status = "primary", solidHeader = TRUE, width = 6,
+                  h5("LUAD Samples:"),
+                  verbatimTextOutput("luad_scrna_info"),
+                  h5("SCLC Samples:"),
+                  verbatimTextOutput("sclc_scrna_info")
+                ),
+                
+                box(
+                  title = "Dataset Statistics", status = "info", solidHeader = TRUE, width = 6,
+                  h4("Spatial Transcriptomics Summary:"),
+                  verbatimTextOutput("st_dataset_summary"),
+                  br(),
+                  h4("Sample Counts by Category:"),
+                  dataTableOutput("sample_counts_table")
+                )
+              )
+      ),
+      
+      # SIMPLIFIED About Tab
+      tabItem(tabName = "about",
+              fluidRow(
+                box(
+                  title = "About This Simplified Application", status = "primary", solidHeader = TRUE, width = 12,
+                  h3("Spatial Transcriptomics & scRNA Gene Analysis"),
+                  h4("Purpose"),
+                  p("This application provides comprehensive analysis tools for spatial transcriptomics and single-cell RNA sequencing data, 
+                    specifically designed for understanding the underlying mechanisms of lung cancer including LUAD (Lung Adenocarcinoma), 
+                    SCC (Squamous Cell Carcinoma), and SCLC (Small Cell Lung Cancer). The application now uses simplified pathway scoring 
+                    methods with negated expression values for polyamine inhibitors."),
+                  
+                  h4("Key Features"),
+                  tags$ul(
+                    tags$li("Comprehensive pathway gene sets covering all major metabolic pathways"),
+                    tags$li("Standard averaging for all pathways after data transformation"),
+                    tags$li("Improved pathway-level tissue comparison analysis"),
+                    tags$li("Enhanced gene category management and selection")
+                  ),
+                  
+                  h4("Author Information"),
+                  tags$div(
+                    style = "background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0;",
+                    h5(strong("Hamid Khoshfekr Rudsari")),
+                    p(strong("Institution:"), "MD Anderson Cancer Center"),
+                    p(strong("Date:"), "July 2025"),
+                    p(strong("Contact:")),
+                    tags$ul(
+                      tags$li(tags$a(href = "mailto:hkhoshefkr@mdanderson.org", "hkhoshefkr@mdanderson.org")),
+                      tags$li(tags$a(href = "mailto:khoshfekr1994@gmail.com", "khoshfekr1994@gmail.com"))
+                    )
+                  ),
+                  
+                  h4("Research Focus"),
+                  p("Simplified analysis of LUAD, SCC, and SCLC samples for understanding underlying mechanisms of lung cancer using public data. 
+                    This work focuses on metabolic pathway analysis with special emphasis on polyamine metabolism and cellular heterogeneity in lung cancer tissues."),
+                  
+                  h4("Technical Details"),
+                  p("Built using R Shiny with integration of Seurat, SingleR, and other bioinformatics packages for robust 
+                    genomic data analysis and visualization. Simplified with data transformation approach for improved biological interpretation.")
+                )
+              )
+      )
+    )
+  )
+)
+# ===== ENHANCED SERVER =====
+server <- function(input, output, session) {
+  
+  # Reactive values to store data and results
+  values <- reactiveValues(
+    st_data = NULL,
+    scrna_data = NULL,
+    st_plots = NULL,
+    scrna_plots = NULL,
+    all_genes = c(),
+    current_genes = DEFAULT_GENES,
+    gene_search_results = c(),
+    tissue_data_list = list(),
+    tissue_comparison_plot = NULL,
+    pathway_comparison_plot = NULL
+  )
+  
+  # Simplified plot dimensions with guaranteed numeric values
+  get_st_width <- function() {
+    tryCatch({
+      if (!is.null(input$st_genes)) {
+        base_width <- 400
+        n_genes <- length(input$st_genes)
+        return(max(400, min(1200, base_width + (n_genes * 50))))
+      }
+      return(400)
+    }, error = function(e) {
+      return(400)
+    })
+  }
+  
+  get_st_height <- function() {
+    tryCatch({
+      if (!is.null(input$st_genes)) {
+        base_height <- 400
+        n_genes <- length(input$st_genes)
+        return(max(400, min(800, base_height + (n_genes * 30))))
+      }
+      return(400)
+    }, error = function(e) {
+      return(400)
+    })
+  }
+  
+  get_scrna_width <- function() {
+    tryCatch({
+      if (!is.null(input$scrna_genes)) {
+        base_width <- 500
+        n_genes <- length(input$scrna_genes)
+        return(max(500, min(1200, base_width + (n_genes * 60))))
+      }
+      return(500)
+    }, error = function(e) {
+      return(500)
+    })
+  }
+  
+  get_scrna_height <- function() {
+    tryCatch({
+      if (!is.null(input$scrna_genes)) {
+        base_height <- 400
+        n_genes <- length(input$scrna_genes)
+        return(max(400, min(800, base_height + (n_genes * 40))))
+      }
+      return(400)
+    }, error = function(e) {
+      return(400)
+    })
+  }
+  
+  get_tissue_width <- function() {
+    tryCatch({
+      if (!is.null(input$tissue_genes)) {
+        base_width <- 600
+        n_genes <- length(input$tissue_genes)
+        return(max(600, min(1400, base_width + (n_genes * 80))))
+      }
+      return(600)
+    }, error = function(e) {
+      return(600)
+    })
+  }
+  
+  get_tissue_height <- function() {
+    return(500)
+  }
+  
+  # Update sample choices based on cancer type
+  observe({
+    cancer_samples <- patient_data[patient_data$type_of_cancer == input$st_cancer_type, ]$patient_code
+    updateSelectInput(session, "st_sample", choices = cancer_samples)
+  })
+  
+  # Update available genes when data is loaded
+  observe({
+    values$all_genes <- get_available_genes(values$st_data, values$scrna_data)
+  })
+  
+  # Gene search functionality
+  observe({
+    req(input$gene_search)
+    if (nchar(input$gene_search) >= 2 && length(values$all_genes) > 0) {
+      values$gene_search_results <- search_genes(input$gene_search, values$all_genes)
+    } else {
+      values$gene_search_results <- c()
+    }
+  })
+  
+  # Update gene choices based on category selection for spatial tab
+  observe({
+    if (!is.null(input$st_gene_category) && input$st_gene_category != "custom") {
+      new_genes <- unique(c(values$current_genes, GENE_CATEGORIES[[input$st_gene_category]]))
+      values$current_genes <- new_genes
+      updateCheckboxGroupInput(session, "st_genes",
+                               choices = new_genes,
+                               selected = GENE_CATEGORIES[[input$st_gene_category]])
+    } else {
+      updateCheckboxGroupInput(session, "st_genes",
+                               choices = values$current_genes,
+                               selected = input$st_genes)
+    }
+  })
+  
+  # Update gene choices based on category selection for scrna tab
+  observe({
+    if (!is.null(input$scrna_gene_category) && input$scrna_gene_category != "custom") {
+      new_genes <- unique(c(values$current_genes, GENE_CATEGORIES[[input$scrna_gene_category]]))
+      values$current_genes <- new_genes
+      updateCheckboxGroupInput(session, "scrna_genes",
+                               choices = new_genes,
+                               selected = GENE_CATEGORIES[[input$scrna_gene_category]])
+    } else {
+      updateCheckboxGroupInput(session, "scrna_genes",
+                               choices = values$current_genes,
+                               selected = input$scrna_genes)
+    }
+  })
+  
+  # Update gene choices based on category selection for tissue tab
+  observe({
+    if (!is.null(input$tissue_gene_category) && input$tissue_gene_category != "custom") {
+      new_genes <- unique(c(values$current_genes, GENE_CATEGORIES[[input$tissue_gene_category]]))
+      values$current_genes <- new_genes
+      updateCheckboxGroupInput(session, "tissue_genes",
+                               choices = new_genes,
+                               selected = GENE_CATEGORIES[[input$tissue_gene_category]])
+    } else {
+      updateCheckboxGroupInput(session, "tissue_genes",
+                               choices = values$current_genes,
+                               selected = input$tissue_genes)
+    }
+  })
+  
+  # Add custom genes handlers for all tabs
+  observeEvent(input$st_add_genes, {
+    if (input$st_custom_genes != "") {
+      new_genes <- trimws(unlist(strsplit(input$st_custom_genes, ",")))
+      new_genes <- new_genes[new_genes != ""]
+      new_genes <- toupper(new_genes)
+      
+      values$current_genes <- unique(c(values$current_genes, new_genes))
+      
+      updateCheckboxGroupInput(session, "st_genes",
+                               choices = values$current_genes,
+                               selected = unique(c(input$st_genes, new_genes)))
+      
+      updateTextInput(session, "st_custom_genes", value = "")
+      showNotification(paste("Added genes:", paste(new_genes, collapse = ", ")), type = "message")
+    }
+  })
+  
+  observeEvent(input$scrna_add_genes, {
+    if (input$scrna_custom_genes != "") {
+      new_genes <- trimws(unlist(strsplit(input$scrna_custom_genes, ",")))
+      new_genes <- new_genes[new_genes != ""]
+      new_genes <- toupper(new_genes)
+      
+      values$current_genes <- unique(c(values$current_genes, new_genes))
+      
+      updateCheckboxGroupInput(session, "scrna_genes",
+                               choices = values$current_genes,
+                               selected = unique(c(input$scrna_genes, new_genes)))
+      
+      updateTextInput(session, "scrna_custom_genes", value = "")
+      showNotification(paste("Added genes:", paste(new_genes, collapse = ", ")), type = "message")
+    }
+  })
+  
+  observeEvent(input$tissue_add_genes, {
+    if (input$tissue_custom_genes != "") {
+      new_genes <- trimws(unlist(strsplit(input$tissue_custom_genes, ",")))
+      new_genes <- new_genes[new_genes != ""]
+      new_genes <- toupper(new_genes)
+      
+      values$current_genes <- unique(c(values$current_genes, new_genes))
+      
+      updateCheckboxGroupInput(session, "tissue_genes",
+                               choices = values$current_genes,
+                               selected = unique(c(input$tissue_genes, new_genes)))
+      
+      updateTextInput(session, "tissue_custom_genes", value = "")
+      showNotification(paste("Added genes:", paste(new_genes, collapse = ", ")), type = "message")
+    }
+  })
+  
+  # Add searched gene
+  observeEvent(input$add_searched_gene, {
+    if (length(values$gene_search_results) > 0) {
+      new_gene <- values$gene_search_results[1]
+      values$current_genes <- unique(c(values$current_genes, new_gene))
+      
+      # Update all gene selection inputs
+      updateCheckboxGroupInput(session, "st_genes",
+                               choices = values$current_genes,
+                               selected = unique(c(input$st_genes, new_gene)))
+      updateCheckboxGroupInput(session, "scrna_genes",
+                               choices = values$current_genes,
+                               selected = unique(c(input$scrna_genes, new_gene)))
+      updateCheckboxGroupInput(session, "tissue_genes",
+                               choices = values$current_genes,
+                               selected = unique(c(input$tissue_genes, new_gene)))
+      
+      updateSelectInput(session, "comp_gene",
+                        choices = values$current_genes,
+                        selected = new_gene)
+      
+      showNotification(paste("Added gene:", new_gene), type = "message")
+    }
+  })
+  
+  # Select All / Deselect All functionality for Spatial tab
+  observeEvent(input$st_select_all, {
+    updateCheckboxGroupInput(session, "st_genes",
+                             choices = values$current_genes,
+                             selected = values$current_genes)
+    showNotification("Selected all genes for Spatial analysis", type = "message")
+  })
+  
+  observeEvent(input$st_deselect_all, {
+    updateCheckboxGroupInput(session, "st_genes",
+                             choices = values$current_genes,
+                             selected = character(0))
+    showNotification("Deselected all genes for Spatial analysis", type = "message")
+  })
+  
+  observeEvent(input$st_select_polyamine, {
+    polyamine_genes <- c("ODC1", "AMD1", "SRM", "SMS", "SAT1", "PAOX", "OAZ1")
+    available_polyamine <- polyamine_genes[polyamine_genes %in% values$current_genes]
+    
+    # Add polyamine genes to current genes if not present
+    missing_polyamine <- polyamine_genes[!polyamine_genes %in% values$current_genes]
+    if (length(missing_polyamine) > 0) {
+      values$current_genes <- unique(c(values$current_genes, missing_polyamine))
+      available_polyamine <- polyamine_genes
+    }
+    
+    updateCheckboxGroupInput(session, "st_genes",
+                             choices = values$current_genes,
+                             selected = available_polyamine)
+    showNotification(paste("Selected polyamine metabolism genes:", paste(available_polyamine, collapse = ", ")), type = "message")
+  })
+  
+  # Select All / Deselect All functionality for scRNA tab
+  observeEvent(input$scrna_select_all, {
+    updateCheckboxGroupInput(session, "scrna_genes",
+                             choices = values$current_genes,
+                             selected = values$current_genes)
+    showNotification("Selected all genes for scRNA analysis", type = "message")
+  })
+  
+  observeEvent(input$scrna_deselect_all, {
+    updateCheckboxGroupInput(session, "scrna_genes",
+                             choices = values$current_genes,
+                             selected = character(0))
+    showNotification("Deselected all genes for scRNA analysis", type = "message")
+  })
+  
+  observeEvent(input$scrna_select_polyamine, {
+    polyamine_genes <- c("ODC1", "AMD1", "SRM", "SMS", "SAT1", "PAOX", "OAZ1")
+    available_polyamine <- polyamine_genes[polyamine_genes %in% values$current_genes]
+    
+    # Add polyamine genes to current genes if not present
+    missing_polyamine <- polyamine_genes[!polyamine_genes %in% values$current_genes]
+    if (length(missing_polyamine) > 0) {
+      values$current_genes <- unique(c(values$current_genes, missing_polyamine))
+      available_polyamine <- polyamine_genes
+    }
+    
+    updateCheckboxGroupInput(session, "scrna_genes",
+                             choices = values$current_genes,
+                             selected = available_polyamine)
+    showNotification(paste("Selected polyamine metabolism genes:", paste(available_polyamine, collapse = ", ")), type = "message")
+  })
+  
+  # Select All / Deselect All functionality for Tissue Comparison tab
+  observeEvent(input$tissue_select_all, {
+    updateCheckboxGroupInput(session, "tissue_genes",
+                             choices = values$current_genes,
+                             selected = values$current_genes)
+    showNotification("Selected all genes for Tissue Comparison analysis", type = "message")
+  })
+  
+  observeEvent(input$tissue_deselect_all, {
+    updateCheckboxGroupInput(session, "tissue_genes",
+                             choices = values$current_genes,
+                             selected = character(0))
+    showNotification("Deselected all genes for Tissue Comparison analysis", type = "message")
+  })
+  
+  observeEvent(input$tissue_select_polyamine, {
+    polyamine_genes <- c("ODC1", "AMD1", "SRM", "SMS", "SAT1", "PAOX", "OAZ1")
+    available_polyamine <- polyamine_genes[polyamine_genes %in% values$current_genes]
+    
+    # Add polyamine genes to current genes if not present
+    missing_polyamine <- polyamine_genes[!polyamine_genes %in% values$current_genes]
+    if (length(missing_polyamine) > 0) {
+      values$current_genes <- unique(c(values$current_genes, missing_polyamine))
+      available_polyamine <- polyamine_genes
+    }
+    
+    updateCheckboxGroupInput(session, "tissue_genes",
+                             choices = values$current_genes,
+                             selected = available_polyamine)
+    showNotification(paste("Selected polyamine metabolism genes:", paste(available_polyamine, collapse = ", ")), type = "message")
+  })
+  
+  # Clear genes
+  observeEvent(input$clear_genes, {
+    values$current_genes <- DEFAULT_GENES[1:20]
+    updateCheckboxGroupInput(session, "st_genes",
+                             choices = DEFAULT_GENES[1:20],
+                             selected = DEFAULT_GENES[1:3])
+    updateCheckboxGroupInput(session, "scrna_genes",
+                             choices = DEFAULT_GENES[1:20],
+                             selected = DEFAULT_GENES[1:3])
+    updateCheckboxGroupInput(session, "tissue_genes",
+                             choices = DEFAULT_GENES[1:20],
+                             selected = DEFAULT_GENES[1:3])
+    showNotification("Gene list reset to defaults", type = "message")
+  })
+  
+  # Load spatial data
+  observeEvent(input$load_st_data, {
+    sample_name <- input$st_sample
+    
+    withProgress(message = 'Loading spatial data...', value = 0, {
+      incProgress(0.3, detail = "Reading files...")
+      
+      tryCatch({
+        values$st_data <- load_visium_data(sample_name)
+        
+        if (!is.null(values$st_data)) {
+          incProgress(0.7, detail = "Processing data...")
+          values$st_data <- process_spatial_data(values$st_data)
+          showNotification("Spatial data loaded successfully!", type = "message")
+        } else {
+          showNotification("Failed to load spatial data. Check file paths.", type = "error")
+        }
+      }, error = function(e) {
+        showNotification(paste("Error loading spatial data:", e$message), type = "error")
+      })
+    })
+  })
+  
+  # Load scRNA data
+  observeEvent(input$load_scrna_data, {
+    sample_name <- ifelse(input$scrna_cancer_type == "LUAD", input$scrna_luad_sample, input$scrna_sclc_sample)
+    
+    withProgress(message = 'Loading scRNA data...', value = 0, {
+      incProgress(0.3, detail = "Reading files...")
+      
+      tryCatch({
+        values$scrna_data <- load_scrna_data(sample_name, input$scrna_cancer_type)
+        
+        if (!is.null(values$scrna_data)) {
+          incProgress(0.7, detail = "Processing data...")
+          values$scrna_data <- process_scrna_data(values$scrna_data)
+          showNotification("scRNA data loaded successfully!", type = "message")
+        } else {
+          showNotification("Failed to load scRNA data. Check file paths.", type = "error")
+        }
+      }, error = function(e) {
+        showNotification(paste("Error loading scRNA data:", e$message), type = "error")
+      })
+    })
+  })
+  
+  # Load tissue comparison data
+  observeEvent(input$load_tissue_data, {
+    req(input$tissue_samples)
+    
+    withProgress(message = 'Loading tissue comparison data...', value = 0, {
+      values$tissue_data_list <- list()
+      
+      for (i in seq_along(input$tissue_samples)) {
+        sample_name <- input$tissue_samples[i]
+        incProgress(1/length(input$tissue_samples), detail = paste("Loading", sample_name))
+        
+        tryCatch({
+          spatial_data <- load_visium_data(sample_name)
+          if (!is.null(spatial_data)) {
+            spatial_data <- process_spatial_data(spatial_data)
+            values$tissue_data_list[[sample_name]] <- spatial_data
+          }
+        }, error = function(e) {
+          message(paste("Error loading", sample_name, ":", e$message))
+        })
+      }
+      
+      showNotification(paste("Loaded", length(values$tissue_data_list), "samples for tissue comparison"), type = "message")
+    })
+  })
+  
+  # Generate spatial plots with enhanced debugging
+  observeEvent(input$generate_st_plots, {
+    req(values$st_data, input$st_genes)
+    
+    withProgress(message = 'Generating spatial plots...', value = 0, {
+      sample_info <- get_sample_info(input$st_sample)
+      tissue_type <- ifelse(!is.null(sample_info) && sample_info$tissue_category == "Adjacent", "adj", input$st_cancer_type)
+      
+      # Check which genes are available
+      available_genes <- input$st_genes[input$st_genes %in% rownames(values$st_data)]
+      missing_genes <- input$st_genes[!input$st_genes %in% rownames(values$st_data)]
+      
+      if (length(available_genes) == 0) {
+        showNotification("None of the selected genes were found in the spatial dataset!", type = "error")
+        return()
+      }
+      
+      if (length(missing_genes) > 0) {
+        showNotification(paste("Missing genes:", paste(missing_genes, collapse = ", ")), type = "warning")
+      }
+      
+      # Show which genes are selected and from which pathways
+      gene_pathway_info <- map_genes_to_pathways(available_genes)
+      pathway_summary <- table(unlist(gene_pathway_info))
+      pathway_text <- paste(names(pathway_summary), ":", pathway_summary, collapse = "; ")
+      
+      # Special check for polyamine metabolism
+      polyamine_selected <- available_genes[available_genes %in% c("ODC1", "AMD1", "SRM", "SMS", "SAT1", "PAOX", "OAZ1")]
+      if (length(polyamine_selected) > 0) {
+        showNotification(paste("Polyamine genes selected:", paste(polyamine_selected, collapse = ", ")), type = "message")
+      }
+      
+      showNotification(paste("Analyzing", length(available_genes), "genes from pathways:", pathway_text), type = "message")
+      
+      incProgress(0.5, detail = "Generating enhanced plots...")
+      
+      values$st_plots <- generate_spatial_gene_plots(values$st_data, input$st_genes, tissue_type, input$st_display_mode)
+      
+      incProgress(1.0, detail = "Analysis complete!")
+      showNotification("Enhanced spatial analysis completed successfully!", type = "message")
+    })
+  })
+  
+  # Generate scRNA plots
+  observeEvent(input$generate_scrna_plots, {
+    req(values$scrna_data, input$scrna_genes)
+    
+    withProgress(message = 'Generating scRNA plots...', value = 0, {
+      # Check which genes are available
+      available_genes <- input$scrna_genes[input$scrna_genes %in% rownames(values$scrna_data)]
+      missing_genes <- input$scrna_genes[!input$scrna_genes %in% rownames(values$scrna_data)]
+      
+      if (length(available_genes) == 0) {
+        showNotification("None of the selected genes were found in the scRNA dataset!", type = "error")
+        return()
+      }
+      
+      if (length(missing_genes) > 0) {
+        showNotification(paste("Missing genes:", paste(missing_genes, collapse = ", ")), type = "warning")
+      }
+      
+      # Show pathway analysis info
+      gene_pathway_info <- map_genes_to_pathways(available_genes)
+      pathway_summary <- table(unlist(gene_pathway_info))
+      pathway_text <- paste(names(pathway_summary), ":", pathway_summary, collapse = "; ")
+      
+      showNotification(paste("Analyzing", length(available_genes), "genes from pathways:", pathway_text), type = "message")
+      
+      values$scrna_plots <- generate_scrna_gene_plots(values$scrna_data, input$scrna_genes, 
+                                                      input$scrna_cancer_type, input$scrna_tissue_type)
+      
+      incProgress(1.0, detail = "Analysis complete!")
+      showNotification("Enhanced scRNA analysis completed successfully!", type = "message")
+    })
+  })
+  
+  # Generate tissue comparison
+  observeEvent(input$generate_tissue_comparison, {
+    req(values$tissue_data_list, input$tissue_genes)
+    
+    withProgress(message = 'Generating tissue comparison...', value = 0, {
+      incProgress(0.5, detail = "Creating comparison plot...")
+      
+      values$tissue_comparison_plot <- generate_tissue_comparison_plot(values$tissue_data_list, input$tissue_genes)
+      
+      incProgress(1.0, detail = "Comparison complete!")
+      showNotification("Tissue comparison completed successfully!", type = "message")
+    })
+  })
+  
+  # Generate enhanced pathway comparison
+  observeEvent(input$generate_pathway_comparison, {
+    req(values$tissue_data_list, input$tissue_genes)
+    
+    withProgress(message = 'Generating enhanced pathway comparison...', value = 0, {
+      incProgress(0.3, detail = "Mapping genes to pathways...")
+      
+      # Show pathway mapping info
+      gene_pathway_info <- map_genes_to_pathways(input$tissue_genes)
+      pathway_summary <- table(unlist(gene_pathway_info))
+      polyamine_genes <- names(gene_pathway_info)[sapply(gene_pathway_info, function(x) x == "Polyamine Metabolism")]
+      
+      if (length(polyamine_genes) > 0) {
+        showNotification(paste("Enhanced polyamine scoring active for genes:", paste(polyamine_genes, collapse = ", ")), type = "message")
+      }
+      
+      incProgress(0.7, detail = "Creating enhanced pathway comparison plot...")
+      
+      values$pathway_comparison_plot <- generate_pathway_comparison_plot(values$tissue_data_list, input$tissue_genes)
+      
+      incProgress(1.0, detail = "Enhanced pathway comparison complete!")
+      showNotification("Enhanced pathway comparison completed successfully!", type = "message")
+    })
+  })
+  
+  # Reactive to regenerate plots when display mode changes
+  observeEvent(input$st_display_mode, {
+    if (!is.null(values$st_data) && !is.null(input$st_genes)) {
+      sample_info <- get_sample_info(input$st_sample)
+      tissue_type <- ifelse(!is.null(sample_info) && sample_info$tissue_category == "Adjacent", "adj", input$st_cancer_type)
+      
+      values$st_plots <- generate_spatial_gene_plots(values$st_data, input$st_genes, tissue_type, input$st_display_mode)
+      
+      showNotification(paste("Display mode changed to:", input$st_display_mode), type = "message")
+    }
+  })
+  
+  # ENHANCED SPATIAL PLOT OUTPUTS
+  output$st_cluster_plot <- renderPlot({
+    if (!is.null(values$st_plots) && "cluster_plot" %in% names(values$st_plots)) {
+      values$st_plots$cluster_plot
+    } else {
+      ggplot() + ggtitle("Load data and generate plots first") + theme_void()
+    }
+  }, width = get_st_width, height = get_st_height, res = 120)
+  
+  output$st_circular_plot <- renderPlot({
+    if (!is.null(values$st_plots) && "circular_plot" %in% names(values$st_plots)) {
+      values$st_plots$circular_plot
+    } else {
+      ggplot() + ggtitle("Generate plots to see circular plot") + theme_void()
+    }
+  }, width = function() {
+    tryCatch({
+      if (!is.null(input$st_genes)) {
+        return(max(600, length(input$st_genes) * 80 + 200))
+      }
+      return(600)
+    }, error = function(e) return(600))
+  }, height = 700, res = 150)
+  
+  output$st_gene_plot <- renderPlot({
+    if (!is.null(values$st_plots) && "feature_plot" %in% names(values$st_plots)) {
+      values$st_plots$feature_plot
+    } else {
+      ggplot() + ggtitle("Generate plots to see gene expression") + theme_void()
+    }
+  })
+  
+  output$st_percentage_plot <- renderPlot({
+    if (!is.null(values$st_plots) && "percentage_plot" %in% names(values$st_plots)) {
+      values$st_plots$percentage_plot
+    } else {
+      ggplot() + ggtitle("Switch to Cell Types view and generate plots to see gene expression by cell type") + theme_void()
+    }
+  }, width = function() {
+    tryCatch({
+      if (!is.null(input$st_genes)) {
+        return(max(600, length(input$st_genes) * 80 + 200))
+      }
+      return(600)
+    }, error = function(e) return(600))
+  }, height = 500, res = 120)
+  
+  output$st_pathway_percentage_plot <- renderPlot({
+    if (!is.null(values$st_plots) && "pathway_percentage_plot" %in% names(values$st_plots)) {
+      values$st_plots$pathway_percentage_plot
+    } else {
+      ggplot() + ggtitle("Switch to Cell Types view and generate plots to see enhanced pathway expression by cell type") + theme_void()
+    }
+  }, width = 1200, height = 600, res = 120)
+  
+  output$st_pathway_heatmap <- renderPlot({
+    if (!is.null(values$st_plots) && "pathway_heatmap" %in% names(values$st_plots)) {
+      values$st_plots$pathway_heatmap
+    } else {
+      ggplot() + ggtitle("Switch to Cell Types view and generate plots to see enhanced pathway expression heatmap") + theme_void()
+    }
+  }, width = 700, height = function() {
+    tryCatch({
+      if (!is.null(input$st_genes)) {
+        gene_pathway_map <- map_genes_to_pathways(input$st_genes)
+        n_pathways <- length(unique(unlist(gene_pathway_map)))
+        return(max(400, n_pathways * 50 + 150))
+      }
+      return(400)
+    }, error = function(e) return(400))
+  }, res = 120)
+  
+  # ENHANCED SCRNA PLOT OUTPUTS
+  output$scrna_umap_plot <- renderPlot({
+    if (!is.null(values$scrna_plots) && "umap_plot" %in% names(values$scrna_plots)) {
+      values$scrna_plots$umap_plot
+    } else {
+      ggplot() + ggtitle("Load data and generate plots first") + theme_void()
+    }
+  }, width = 500, height = 400, res = 120)
+  
+  output$scrna_circular_plot <- renderPlot({
+    if (!is.null(values$scrna_plots) && "circular_plot" %in% names(values$scrna_plots)) {
+      values$scrna_plots$circular_plot
+    } else {
+      ggplot() + ggtitle("Generate plots to see circular plot") + theme_void()
+    }
+  }, width = function() {
+    tryCatch({
+      if (!is.null(input$scrna_genes)) {
+        return(max(600, length(input$scrna_genes) * 80 + 200))
+      }
+      return(600)
+    }, error = function(e) return(600))
+  }, height = 700, res = 150)
+  
+  output$scrna_proportion_plot <- renderPlot({
+    if (!is.null(values$scrna_plots) && "proportion_plot" %in% names(values$scrna_plots)) {
+      values$scrna_plots$proportion_plot
+    } else {
+      ggplot() + ggtitle("Generate plots to see cell type proportions") + theme_void()
+    }
+  }, width = 500, height = 400, res = 120)
+  
+  output$scrna_feature_plot <- renderPlot({
+    if (!is.null(values$scrna_plots) && "feature_plot" %in% names(values$scrna_plots)) {
+      values$scrna_plots$feature_plot
+    } else {
+      ggplot() + ggtitle("Generate plots to see gene features") + theme_void()
+    }
+  }, width = function() {
+    tryCatch({
+      if (!is.null(input$scrna_genes)) {
+        n_genes <- length(input$scrna_genes)
+        return(max(600, n_genes * 150))
+      }
+      return(600)
+    }, error = function(e) return(600))
+  }, height = function() {
+    tryCatch({
+      if (!is.null(input$scrna_genes)) {
+        n_genes <- length(input$scrna_genes)
+        rows <- ceiling(n_genes / 2)
+        return(max(500, rows * 250))
+      }
+      return(500)
+    }, error = function(e) return(500))
+  }, res = 120)
+  
+  output$scrna_percentage_plot <- renderPlot({
+    if (!is.null(values$scrna_plots) && "percentage_plot" %in% names(values$scrna_plots)) {
+      values$scrna_plots$percentage_plot
+    } else {
+      ggplot() + ggtitle("Generate plots to see gene expression by cell type") + theme_void()
+    }
+  }, width = get_scrna_width, height = 500, res = 120)
+  
+  output$scrna_violin_plot <- renderPlot({
+    if (!is.null(values$scrna_plots) && "violin_plot" %in% names(values$scrna_plots)) {
+      values$scrna_plots$violin_plot
+    } else {
+      ggplot() + ggtitle("Generate plots to see expression distribution") + theme_void()
+    }
+  }, width = get_scrna_width, height = 400, res = 120)
+  
+  output$scrna_pathway_percentage_plot <- renderPlot({
+    if (!is.null(values$scrna_plots) && "pathway_percentage_plot" %in% names(values$scrna_plots)) {
+      values$scrna_plots$pathway_percentage_plot
+    } else {
+      ggplot() + ggtitle("Generate plots to see enhanced pathway expression by cell type") + theme_void()
+    }
+  }, width = 1000, height = 600, res = 120)
+  
+  output$scrna_pathway_heatmap <- renderPlot({
+    if (!is.null(values$scrna_plots) && "pathway_heatmap" %in% names(values$scrna_plots)) {
+      values$scrna_plots$pathway_heatmap
+    } else {
+      ggplot() + ggtitle("Generate plots to see enhanced pathway expression heatmap") + theme_void()
+    }
+  }, width = 700, height = function() {
+    tryCatch({
+      if (!is.null(input$scrna_genes)) {
+        gene_pathway_map <- map_genes_to_pathways(input$scrna_genes)
+        n_pathways <- length(unique(unlist(gene_pathway_map)))
+        return(max(400, n_pathways * 50 + 150))
+      }
+      return(400)
+    }, error = function(e) return(400))
+  }, res = 120)
+  
+  # ENHANCED TISSUE COMPARISON PLOTS
+  output$tissue_comparison_plot <- renderPlot({
+    if (!is.null(values$tissue_comparison_plot)) {
+      values$tissue_comparison_plot
+    } else {
+      ggplot() + ggtitle("Load samples and generate tissue comparison first") + theme_void()
+    }
+  }, width = get_tissue_width, height = get_tissue_height, res = 120)
+  
+  output$pathway_comparison_plot <- renderPlot({
+    if (!is.null(values$pathway_comparison_plot)) {
+      values$pathway_comparison_plot
+    } else {
+      ggplot() + ggtitle("Load samples and generate enhanced pathway comparison first") + theme_void()
+    }
+  }, width = 2400, height = 2400, res = 300)
+  
+  # Comparison analysis
+  observeEvent(input$generate_comparison, {
+    req(values$st_data, values$scrna_data)
+    
+    comparison_plot <- generate_comparison_plot(
+      st_data = values$st_data,
+      scrna_data = values$scrna_data,
+      gene = input$comp_gene,
+      st_cancer = input$comp_st_cancer,
+      scrna_cancer = input$comp_scrna_cancer
+    )
+    
+    output$comparison_plot <- renderPlot({
+      comparison_plot
+    }, width = 600, height = 500, res = 120)
+    
+    showNotification("Comparison analysis completed!", type = "message")
+  })
+  
+  # Gene validation tables
+  output$st_gene_validation <- renderDataTable({
+    if (!is.null(values$st_data) && !is.null(input$st_genes)) {
+      validation <- validate_genes(input$st_genes, spatial_data = values$st_data)
+      
+      gene_status <- data.frame(
+        Gene = names(validation),
+        Available = sapply(validation, function(x) x$spatial),
+        Status = sapply(validation, function(x) ifelse(x$spatial, "✓ Found", "✗ Not Found")),
+        Pathway = sapply(names(validation), function(gene) {
+          pathway_map <- map_genes_to_pathways(gene)
+          ifelse(length(pathway_map) > 0, pathway_map[[1]], "Other")
+        }),
+        stringsAsFactors = FALSE
+      )
+      
+      gene_status
+    } else {
+      data.frame(Gene = character(0), Available = logical(0), Status = character(0), Pathway = character(0))
+    }
+  }, options = list(pageLength = 10, searching = FALSE))
+  
+  output$scrna_gene_validation <- renderDataTable({
+    if (!is.null(values$scrna_data) && !is.null(input$scrna_genes)) {
+      validation <- validate_genes(input$scrna_genes, scrna_data = values$scrna_data)
+      
+      gene_status <- data.frame(
+        Gene = names(validation),
+        Available = sapply(validation, function(x) x$scrna),
+        Status = sapply(validation, function(x) ifelse(x$scrna, "✓ Found", "✗ Not Found")),
+        Pathway = sapply(names(validation), function(gene) {
+          pathway_map <- map_genes_to_pathways(gene)
+          ifelse(length(pathway_map) > 0, pathway_map[[1]], "Other")
+        }),
+        stringsAsFactors = FALSE
+      )
+      
+      gene_status
+    } else {
+      data.frame(Gene = character(0), Available = logical(0), Status = character(0), Pathway = character(0))
+    }
+  }, options = list(pageLength = 10, searching = FALSE))
+  
+  # Gene explorer outputs
+  output$gene_search_results <- renderText({
+    if (length(values$gene_search_results) > 0) {
+      paste(values$gene_search_results, collapse = "\n")
+    } else {
+      "No results found"
+    }
+  })
+  
+  output$current_gene_list <- renderText({
+    paste(values$current_genes, collapse = ", ")
+  })
+  
+  output$spatial_gene_count <- renderText({
+    if (!is.null(values$st_data)) {
+      paste("Total genes:", nrow(values$st_data))
+    } else {
+      "No spatial data loaded"
+    }
+  })
+  
+  output$scrna_gene_count <- renderText({
+    if (!is.null(values$scrna_data)) {
+      paste("Total genes:", nrow(values$scrna_data))
+    } else {
+      "No scRNA data loaded"
+    }
+  })
+  
+  output$gene_availability_table <- renderDataTable({
+    if (length(values$current_genes) > 0) {
+      validation <- validate_genes(values$current_genes, values$st_data, values$scrna_data)
+      
+      availability_df <- data.frame(
+        Gene = names(validation),
+        Spatial = sapply(validation, function(x) ifelse(x$spatial, "✓", "✗")),
+        scRNA = sapply(validation, function(x) ifelse(x$scrna, "✓", "✗")),
+        Available = sapply(validation, function(x) ifelse(x$available, "✓", "✗")),
+        Pathway = sapply(names(validation), function(gene) {
+          pathway_map <- map_genes_to_pathways(gene)
+          ifelse(length(pathway_map) > 0, pathway_map[[1]], "Other")
+        }),
+        stringsAsFactors = FALSE
+      )
+      
+      availability_df
+    } else {
+      data.frame(Gene = character(0), Spatial = character(0), scRNA = character(0), Available = character(0), Pathway = character(0))
+    }
+  }, options = list(pageLength = 15, searching = TRUE))
+  
+  # Check if data is loaded (for conditional panels)
+  output$has_spatial_data <- reactive({
+    !is.null(values$st_data)
+  })
+  
+  output$has_scrna_data <- reactive({
+    !is.null(values$scrna_data)
+  })
+  
+  outputOptions(output, 'has_spatial_data', suspendWhenHidden = FALSE)
+  outputOptions(output, 'has_scrna_data', suspendWhenHidden = FALSE)
+  
+  # Enhanced data status outputs with gene availability
+  output$st_data_status <- renderText({
+    if (is.null(values$st_data)) {
+      "No data loaded. Please select parameters and click 'Load Data'."
+    } else {
+      sample_info <- get_sample_info(input$st_sample)
+      cell_type_info <- ""
+      if ("predicted_cell_type" %in% colnames(values$st_data@meta.data)) {
+        cell_types <- unique(values$st_data$predicted_cell_type)
+        has_real_types <- any(grepl("cells|Epithelial|Fibroblast|Macrophage|Monocyte|NK|Endothelial", cell_types, ignore.case = TRUE))
+        cell_type_info <- ifelse(has_real_types, "SingleR annotation: ✓", "SingleR annotation: ✗ (using clusters)")
+      }
+      
+      # Check polyamine metabolism genes availability
+      polyamine_genes <- c("ODC1", "AMD1", "SRM", "SMS", "SAT1", "PAOX", "OAZ1")
+      available_polyamine <- polyamine_genes[polyamine_genes %in% rownames(values$st_data)]
+      polyamine_info <- paste("Polyamine genes available:", length(available_polyamine), "/", length(polyamine_genes), 
+                              "(", paste(available_polyamine, collapse = ", "), ")")
+      
+      paste("✓ Data loaded successfully!\n",
+            "Sample:", input$st_sample, "\n",
+            "Cancer Type:", if(!is.null(sample_info)) sample_info$type_of_cancer else "Unknown", "\n",
+            "Tissue Type:", if(!is.null(sample_info)) sample_info$tissue_category else "Unknown", "\n",
+            "Age:", if(!is.null(sample_info)) sample_info$age else "Unknown", "\n",
+            "Sex:", if(!is.null(sample_info)) sample_info$sex else "Unknown", "\n",
+            "Features:", ncol(values$st_data), "\n",
+            "Spots:", nrow(values$st_data@meta.data), "\n",
+            "Display Mode:", input$st_display_mode, "\n",
+            cell_type_info, "\n",
+            polyamine_info, "\n",
+            "Enhanced Pathway Scoring: ✓", "\n",
+            "Status:", ifelse(!is.null(values$st_plots), "Analysis Complete", "Ready for Analysis"))
+    }
+  })
+  
+  output$scrna_data_status <- renderText({
+    if (is.null(values$scrna_data)) {
+      "No data loaded. Please select parameters and click 'Load Data'."
+    } else {
+      sample_name <- ifelse(input$scrna_cancer_type == "LUAD", input$scrna_luad_sample, input$scrna_sclc_sample)
+      
+      # Check polyamine metabolism genes availability
+      polyamine_genes <- c("ODC1", "AMD1", "SRM", "SMS", "SAT1", "PAOX", "OAZ1")
+      available_polyamine <- polyamine_genes[polyamine_genes %in% rownames(values$scrna_data)]
+      polyamine_info <- paste("Polyamine genes available:", length(available_polyamine), "/", length(polyamine_genes), 
+                              "(", paste(available_polyamine, collapse = ", "), ")")
+      
+      paste("✓ Data loaded successfully!\n",
+            "Sample:", sample_name, "\n",
+            "Cancer Type:", input$scrna_cancer_type, "\n",
+            "Features:", ncol(values$scrna_data), "\n",
+            "Cells:", nrow(values$scrna_data@meta.data), "\n",
+            polyamine_info, "\n",
+            "Enhanced Pathway Scoring: ✓", "\n",
+            "Status:", ifelse(!is.null(values$scrna_plots), "Analysis Complete", "Ready for Analysis"))
+    }
+  })
+  
+  output$tissue_data_status <- renderText({
+    if (length(values$tissue_data_list) == 0) {
+      "No tissue data loaded. Please select samples and click 'Load Selected Samples'."
+    } else {
+      paste("✓ Tissue data loaded successfully!\n",
+            "Loaded samples:", length(values$tissue_data_list), "\n",
+            "Sample names:", paste(names(values$tissue_data_list), collapse = ", "), "\n",
+            "Enhanced Pathway Scoring: ✓", "\n",
+            "Gene-level status:", ifelse(!is.null(values$tissue_comparison_plot), "Complete", "Ready"), "\n",
+            "Enhanced pathway-level status:", ifelse(!is.null(values$pathway_comparison_plot), "Complete", "Ready"))
+    }
+  })
+  
+  # Sample info tables
+  output$st_sample_info_table <- renderDataTable({
+    if (!is.null(input$st_sample)) {
+      sample_info <- get_sample_info(input$st_sample)
+      if (!is.null(sample_info)) {
+        data.frame(
+          Parameter = c("Sample ID", "Individual", "Age", "Sex", "Disease", 
+                        "Disease Staging", "Sampling Site", "Cancer Type", "Tissue Category"),
+          Value = c(sample_info$patient_code, sample_info$individual, sample_info$age,
+                    sample_info$sex, sample_info$disease, sample_info$disease_staging,
+                    sample_info$sampling_site, sample_info$type_of_cancer, sample_info$tissue_category),
+          stringsAsFactors = FALSE
+        )
+      } else {
+        data.frame(Parameter = character(0), Value = character(0))
+      }
+    } else {
+      data.frame(Parameter = character(0), Value = character(0))
+    }
+  }, options = list(pageLength = 10, searching = FALSE))
+  
+  output$tissue_samples_info <- renderDataTable({
+    if (!is.null(input$tissue_samples)) {
+      sample_info_df <- data.frame()
+      for (sample in input$tissue_samples) {
+        info <- get_sample_info(sample)
+        if (!is.null(info)) {
+          sample_info_df <- rbind(sample_info_df, data.frame(
+            Sample = info$patient_code,
+            Individual = info$individual,
+            Age = info$age,
+            Sex = info$sex,
+            Disease = info$disease,
+            Tissue = info$tissue_category,
+            Cancer_Type = info$type_of_cancer
+          ))
+        }
+      }
+      sample_info_df
+    } else {
+      data.frame()
+    }
+  }, options = list(pageLength = 10, searching = FALSE))
+  
+  output$all_st_samples_info <- renderDataTable({
+    patient_data[, c("patient_code", "individual", "age", "sex", "disease", 
+                     "disease_staging", "sampling_site", "type_of_cancer", "tissue_category")]
+  }, options = list(pageLength = 15, searching = TRUE))
+  
+  output$st_dataset_summary <- renderText({
+    total_samples <- nrow(patient_data)
+    cancer_types <- table(patient_data$type_of_cancer)
+    tissue_types <- table(patient_data$tissue_category)
+    
+    paste("Total Samples:", total_samples, "\n",
+          "Cancer Types:", paste(names(cancer_types), "=", cancer_types, collapse = ", "), "\n",
+          "Tissue Categories:", paste(names(tissue_types), "=", tissue_types, collapse = ", "), "\n",
+          "Age Range:", min(patient_data$age), "-", max(patient_data$age), "years", "\n",
+          "Sex Distribution:", paste(names(table(patient_data$sex)), "=", table(patient_data$sex), collapse = ", "))
+  })
+  
+  output$sample_counts_table <- renderDataTable({
+    count_summary <- patient_data %>%
+      group_by(type_of_cancer, tissue_category) %>%
+      summarise(Count = n(), .groups = 'drop') %>%
+      arrange(type_of_cancer, tissue_category)
+    
+    count_summary
+  }, options = list(pageLength = 10, searching = FALSE))
+  
+  # Update comparison gene choices when genes are added
+  observe({
+    updateSelectInput(session, "comp_gene",
+                      choices = values$current_genes,
+                      selected = input$comp_gene)
+  })
+  
+  # Enhanced info tab outputs
+  output$luad_scrna_info <- renderText({ paste(LUAD_SCRNA_SAMPLES, collapse = "\n") })
+  output$sclc_scrna_info <- renderText({ paste(SCLC_SCRNA_SAMPLES, collapse = "\n") })
+  
+  output$gene_category_list <- renderText({
+    category_text <- ""
+    for (i in 1:length(GENE_CATEGORIES)) {
+      category_text <- paste0(category_text, names(GENE_CATEGORIES)[i], ":\n  ", 
+                              paste(GENE_CATEGORIES[[i]], collapse = ", "), "\n\n")
+    }
+    category_text
+  })
+  
+  output$complete_gene_category_info <- renderText({
+    category_text <- ""
+    for (i in 1:length(GENE_CATEGORIES)) {
+      if (names(GENE_CATEGORIES)[i] == "Polyamine Metabolism") {
+        category_text <- paste0(category_text, names(GENE_CATEGORIES)[i], " (Enhanced Scoring):\n  ", 
+                                paste(GENE_CATEGORIES[[i]], collapse = ", "), 
+                                "\n  Formula: ODC1+AMD1+SRM+SMS+SAT1-PAOX-OAZ1 (z-scaled)\n\n")
+      } else {
+        category_text <- paste0(category_text, names(GENE_CATEGORIES)[i], " (Standard Averaging):\n  ", 
+                                paste(GENE_CATEGORIES[[i]], collapse = ", "), "\n\n")
+      }
+    }
+    category_text
+  })
+  
+  output$scrna_sample_info <- renderDataTable({
+    data.frame(
+      "Cancer Type" = c("LUAD", "SCLC"),
+      "Sample Count" = c(length(LUAD_SCRNA_SAMPLES), length(SCLC_SCRNA_SAMPLES)),
+      "Example Sample" = c("P32", "Mason_1598")
+    )
+  }, options = list(pageLength = 5, searching = FALSE))
+}
+
+# Set memory optimization for large datasets
+options(shiny.maxRequestSize = 100*1024^2)  # 100MB max file size
+
+# Run the application
+shinyApp(ui = ui, server = server)
