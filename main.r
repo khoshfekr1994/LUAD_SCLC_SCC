@@ -2,7 +2,7 @@
 # Enhanced with comprehensive pathway genes and simplified polyamine metabolism scoring
 # 
 # Written by: Hamid Khoshfekr Rudsari
-# Date: October 2025
+# Date: July 2025
 # Contact: hkhoshefkr@mdanderson.org, khoshfekr1994@gmail.com
 # Institute: MD Anderson Cancer Center
 # Analysis of LUAD, SCC, and SCLC samples for understanding underlying mechanisms of lung cancer using public data
@@ -29,6 +29,7 @@ library(stringr)
 library(ggpubr)
 library(gridExtra)
 library(grid)
+library(biomaRt)
 library(tibble)
 library(SummarizedExperiment)
 
@@ -151,8 +152,8 @@ patient_data <- data.frame(
 
 # Updated patient data for scRNA
 patient_data_SCLC <- data.frame(
-  patient_code = c("Mason_768", "Mason_1598", "Mason_1571", "Mason_1498", "Mason_1453", "Mason_1428"),
-  folder = c("Mason_768", "Mason_1598", "Mason_1571", "Mason_1498","Mason_1453", "Mason_1428"),
+  patient_code = c("768", "1598", "1571", "1498", "1453", "1428"),
+  folder = c("768", "1598", "1571", "1498","1453", "1428"),
   type_of_tissue = c("Tumor", "Tumor", "Tumor", "Tumor", "Tumor", "Tumor"),
   type_of_cancer = c("SCLC", "SCLC", "SCLC", "SCLC", "SCLC", "SCLC"),
   stringsAsFactors = FALSE
