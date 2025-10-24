@@ -33,8 +33,9 @@ A comprehensive R Shiny application for analyzing spatial transcriptomics and si
 
 This application uses publicly available data from:
 
-- **Single Cell RNA Sequencing**: [ArrayExpress E-MTAB-13526](https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-13526#processed-data)
-- **Spatial Transcriptomics**: [ArrayExpress E-MTAB-13530](https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-13530)
+- **LUAD and SCC Single Cell RNA Sequencing**: [ArrayExpress E-MTAB-13526](https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-13526#processed-data)
+- **LUAD and SCC Spatial Transcriptomics**: [ArrayExpress E-MTAB-13530](https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-13530)
+- **SCLC Single Cell RNA Sequencing**: https://data.humantumoratlas.org/publications/hta8_2021_cancer-cell_joseph-m-chan?tab=overview
 
 ## 🛠 Installation
 
@@ -57,7 +58,7 @@ install.packages(c("DT", "plotly", "ggplot2", "dplyr", "patchwork",
 if (!require("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
 
-BiocManager::install(c("Seurat", "SingleR", "celldex", "biomaRt", 
+BiocManager::install(c("Seurat", "SingleR", "celldex", 
                        "SummarizedExperiment"))
 ```
 
@@ -149,23 +150,11 @@ source("app.R")
 4. **Clustering**: Graph-based clustering
 5. **Annotation**: SingleR cell type prediction
 
-## 📖 Citation
-
-If you use this application in your research, please cite:
-
-```bibtex
-@software{khoshfekr2025_spatial,
-  author = {Khoshfekr Rudsari, Hamid},
-  title = {Spatial Transcriptomics & Single Cell RNA Gene Analysis for Lung Cancer},
-  year = {2025},
-  institution = {MD Anderson Cancer Center},
-  url = {https://github.com/khoshfekr1994/LUAD_SCLC_SCC}
-}
-```
 
 **Data Sources:**
-- ArrayExpress E-MTAB-13526 (scRNA data)
-- ArrayExpress E-MTAB-13530 (Spatial data)
+- ArrayExpress E-MTAB-13526 (scRNA data LUAD and SCC)
+- ArrayExpress E-MTAB-13530 (Spatial data LUAD and SCC)
+- The Human Tumor Atlas Network (HTAN) – SCLC
 
 ## 👨‍🔬 Author
 
@@ -207,7 +196,7 @@ For detailed documentation on:
 
 ## 🔄 Version History
 
-- **v1.0.0** (July 2025): Initial release 
+- **v1.0.0** (October 2025): Initial release 
 - Enhanced pathway analysis capabilities
 - Comprehensive visualization tools
 - Support for multiple lung cancer types
