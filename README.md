@@ -196,7 +196,7 @@ For detailed documentation on:
 
 ## 🔄 Version History
 
-- **v1.0.0** (October 2025): Initial release 
+- **v2.0.0** (October 2025): Second version – minor updates in the README and main.r
 - Enhanced pathway analysis capabilities
 - Comprehensive visualization tools
 - Support for multiple lung cancer types
