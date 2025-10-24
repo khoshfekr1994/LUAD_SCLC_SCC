@@ -174,7 +174,7 @@ ALL_ST_SAMPLES <- patient_data$patient_code
 LUAD_ST_SAMPLES <- patient_data[patient_data$type_of_cancer == "LUAD", ]$patient_code
 SCC_ST_SAMPLES <- patient_data[patient_data$type_of_cancer == "SCC", ]$patient_code
 LUAD_SCRNA_SAMPLES <- c("P5", "P9", "P16", "P20", "P21", "P29", "P30", "P32", "P35")
-SCLC_SCRNA_SAMPLES <- c("Mason_768", "Mason_1598", "Mason_1571", "Mason_1498", "Mason_1453", "Mason_1428")
+SCLC_SCRNA_SAMPLES <- c("768", "1598", "1571", "1498", "1453", "1428")
 
 # UPDATED: Comprehensive gene categories with all pathway genes
 GENE_CATEGORIES <- list(
@@ -2582,7 +2582,7 @@ ui <- dashboardPage(
                   conditionalPanel(
                     condition = "input.scrna_cancer_type == 'SCLC'",
                     selectInput("scrna_sclc_sample", "SCLC Sample:",
-                                choices = SCLC_SCRNA_SAMPLES, selected = "Mason_1598")
+                                choices = SCLC_SCRNA_SAMPLES, selected = "1598")
                   ),
                   
                   selectInput("scrna_tissue_type", "Tissue Type:",
@@ -2736,7 +2736,7 @@ ui <- dashboardPage(
                   conditionalPanel(
                     condition = "input.comp_scrna_cancer == 'SCLC'",
                     selectInput("comp_scrna_sclc", "scRNA Sample:", 
-                                choices = SCLC_SCRNA_SAMPLES, selected = "Mason_1598")
+                                choices = SCLC_SCRNA_SAMPLES, selected = "1598")
                   ),
                   
                   hr(),
@@ -4050,7 +4050,7 @@ server <- function(input, output, session) {
     data.frame(
       "Cancer Type" = c("LUAD", "SCLC"),
       "Sample Count" = c(length(LUAD_SCRNA_SAMPLES), length(SCLC_SCRNA_SAMPLES)),
-      "Example Sample" = c("P32", "Mason_1598")
+      "Example Sample" = c("P32", "1598")
     )
   }, options = list(pageLength = 5, searching = FALSE))
   
